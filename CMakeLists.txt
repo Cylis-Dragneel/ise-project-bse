@@ -25,7 +25,8 @@ endfunction()
 # -------- CORE LIBRARY --------
 
 file(GLOB_RECURSE CORE_SRC CONFIGURE_DEPENDS
-    src/core/*.cpp
+    src/core/*.cp
+    src/encoder/*.h
     src/encoder/*.cpp
 )
 
@@ -74,6 +75,9 @@ if(QR_BUILD_APP)
     find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
 
     file(GLOB_RECURSE APP_SRC CONFIGURE_DEPENDS
+        src/ui/*.h
+        src/camera/*.h
+        src/renderer/*.h
         src/ui/*.cpp
         src/camera/*.cpp
         src/renderer/*.cpp
@@ -86,6 +90,7 @@ if(QR_BUILD_APP)
 
         target_include_directories(qrapp PRIVATE 
         src
+        src/encoder
         src/renderer
         )
 

@@ -10,7 +10,7 @@ class BarcodeCharacter
 {
 public:
     char symbol;
-    string pattern; // 1 = wide Element , 0 = narrow Element
+    string pattern; // 1 = wide Element 0 = narrow Element
 
     BarcodeCharacter(char sym, const string &pat):symbol(sym), pattern(pat) {}
 };
