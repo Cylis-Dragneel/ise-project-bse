@@ -26,11 +26,15 @@ endfunction()
 
 file(GLOB_RECURSE CORE_SRC CONFIGURE_DEPENDS
     src/core/*.cpp
+    src/encoder/*.cpp
 )
 
 if(CORE_SRC)
     add_library(qrcore STATIC ${CORE_SRC})
-    target_include_directories(qrcore PUBLIC src/core)
+    target_include_directories(qrcore PUBLIC 
+        src/core
+        src/encoder
+    )
     qr_warnings(qrcore)
 else()
     message(STATUS "No core source files found. Skipping qrcore.")
