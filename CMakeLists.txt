@@ -75,7 +75,7 @@ if(QR_BUILD_APP)
 
     set(CMAKE_AUTOMOC ON)
 
-    find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia MultimediaWidgets)
 
     file(GLOB_RECURSE APP_SRC CONFIGURE_DEPENDS
         src/ui/*.h
@@ -100,6 +100,7 @@ if(QR_BUILD_APP)
         target_link_libraries(qrapp PRIVATE
             Qt6::Widgets
             Qt6::Multimedia
+            Qt6::MultimediaWidgets
         )
 
         if(TARGET qrcore)

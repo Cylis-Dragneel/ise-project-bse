@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 
+#include "camera/CameraHandler.h"
+
 #include <QWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -14,6 +16,7 @@
 #include <QPixmap>
 #include <QStatusBar>
 #include <QRegularExpressionValidator>
+#include <QVideoWidget>
 #include <exception>
 #include <string>
 #include <vector>
@@ -82,14 +85,20 @@ MainWindow::MainWindow(QWidget *parent)
     readerPreview->setStyleSheet(
         "border: 1px solid gray; background: #f5f5f5;");
 
+    cameraPreview = new QVideoWidget();
+    cameraPreview->setMinimumHeight(200);
+    cameraPreview->hide();
+
     startCameraButton = new QPushButton("Start Camera");
     stopCameraButton = new QPushButton("Stop Camera");
+    stopCameraButton->setEnabled(false);
 
     decodedNumber = new QLabel("Decoded Number: Not available");
     decodedNumber->setAlignment(Qt::AlignCenter);
 
     readerLayout->addWidget(uploadButton);
     readerLayout->addWidget(readerPreview);
+    readerLayout->addWidget(cameraPreview);
     readerLayout->addWidget(startCameraButton);
     readerLayout->addWidget(stopCameraButton);
     readerLayout->addWidget(decodedNumber);
@@ -98,6 +107,18 @@ MainWindow::MainWindow(QWidget *parent)
     panelsLayout->addWidget(readerPanel);
 
     mainLayout->addLayout(panelsLayout);
+
+    cameraHandler = new CameraHandler(cameraPreview, this);
+
+    connect(cameraHandler, &CameraHandler::errorOccurred,
+            this, [this](const QString &message) {
+                cameraHandler->stopCamera();
+                cameraPreview->hide();
+                readerPreview->show();
+                startCameraButton->setEnabled(true);
+                stopCameraButton->setEnabled(false);
+                statusBar()->showMessage(message);
+            });
 
     // Button styling
     setStyleSheet(
@@ -135,6 +156,14 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::stopCamera);
 
     statusBar()->showMessage("Application ready");
+}
+
+MainWindow::~MainWindow()
+{
+    if (cameraHandler)
+    {
+        cameraHandler->stopCamera();
+    }
 }
 
 // Generate button
@@ -239,6 +268,11 @@ void MainWindow::uploadImage()
         return;
     }
 
+    if (cameraHandler->isRunning())
+    {
+        stopCamera();
+    }
+
     readerPreview->setPixmap(
         QPixmap::fromImage(image).scaled(readerPreview->size(),
                                          Qt::KeepAspectRatio,
@@ -290,18 +324,35 @@ void MainWindow::clearGenerator()
     statusBar()->showMessage("Generator cleared.");
 }
 
-// Start camera placeholder
+// Start camera
 void MainWindow::startCamera()
 {
-    statusBar()->showMessage(
-        "Camera integration pending.");
+    if (cameraHandler->isRunning())
+    {
+        return;
+    }
+
+    if (!cameraHandler->startCamera())
+    {
+        // errorOccurred already reset the UI and reported the problem.
+        return;
+    }
+
+    readerPreview->hide();
+    cameraPreview->show();
+    startCameraButton->setEnabled(false);
+    stopCameraButton->setEnabled(true);
+    statusBar()->showMessage("Camera started.");
 }
 
-// Stop camera placeholder
+// Stop camera
 void MainWindow::stopCamera()
 {
-    statusBar()->showMessage(
-        "Camera stopped.");
-    readerPreview->setText("Uploaded Image Preview");
-    readerPreview->setPixmap(QPixmap());
+    cameraHandler->stopCamera();
+
+    cameraPreview->hide();
+    readerPreview->show();
+    startCameraButton->setEnabled(true);
+    stopCameraButton->setEnabled(false);
+    statusBar()->showMessage("Camera stopped.");
 }

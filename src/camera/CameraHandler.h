@@ -2,19 +2,25 @@
 #define CAMERAHANDLER_H
 
 #include <QObject>
-#include <QCamera>
-#include <QMediaCaptureSession>
-#include <QVideoWidget>
+#include <QString>
+
+class QCamera;
+class QMediaCaptureSession;
+class QVideoWidget;
 
 class CameraHandler : public QObject {
     Q_OBJECT
 public:
     explicit CameraHandler(QVideoWidget *viewfinderWidget, QObject *parent = nullptr);
-    ~CameraHandler();
+    ~CameraHandler() override;
 
-    void startCamera();
+    // Returns false when no camera device is available.
+    bool startCamera();
     void stopCamera();
     bool isRunning() const;
+
+signals:
+    void errorOccurred(const QString &message);
 
 private:
     QCamera *camera;

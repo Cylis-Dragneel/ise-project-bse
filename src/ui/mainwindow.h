@@ -10,6 +10,8 @@
 class QLineEdit;
 class QLabel;
 class QPushButton;
+class QVideoWidget;
+class CameraHandler;
 
 class MainWindow : public QMainWindow
 {
@@ -17,6 +19,7 @@ class MainWindow : public QMainWindow
 
 public:
     MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override;
 
 private:
     QLineEdit *barcodeInput;
@@ -24,6 +27,8 @@ private:
     BarcodeWidget *barcodeRendererWidget; 
     
     QLabel *readerPreview;
+    QVideoWidget *cameraPreview;
+    CameraHandler *cameraHandler;
     QLabel *decodedNumber;
 
     QPushButton *generateButton;
