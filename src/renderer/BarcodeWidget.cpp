@@ -15,6 +15,48 @@ void BarcodeWidget::setPattern(const std::string &pattern)
     update();
 }
 
+bool BarcodeWidget::hasPattern() const
+{
+    return !binaryPattern.empty();
+}
+
+QImage BarcodeWidget::renderImage(int scale, int margin, int barHeight) const
+{
+    if (binaryPattern.empty() || scale < 1 || margin < 0 || barHeight <= 0) {
+        return QImage();
+    }
+
+    const int narrow = narrowWidth * scale;
+    const int wide = wideWidth * scale;
+
+    int barcodeWidth = 0;
+    for (char element : binaryPattern) {
+        barcodeWidth += (element == '1') ? wide : narrow;
+    }
+
+    QImage image(barcodeWidth + 2 * margin,
+                 barHeight + 2 * margin,
+                 QImage::Format_RGB32);
+    image.fill(Qt::white);
+
+    QPainter painter(&image);
+
+    int xPos = margin;
+    for (size_t i = 0; i < binaryPattern.length(); ++i) {
+        const int currentWidth = (binaryPattern[i] == '1') ? wide : narrow;
+        const bool isBar = (i % 2 == 0);
+
+        if (isBar) {
+            painter.fillRect(xPos, margin, currentWidth, barHeight, Qt::black);
+        }
+
+        xPos += currentWidth;
+    }
+
+    painter.end();
+    return image;
+}
+
 void BarcodeWidget::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);

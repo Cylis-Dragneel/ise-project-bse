@@ -28,6 +28,8 @@ file(GLOB_RECURSE CORE_SRC CONFIGURE_DEPENDS
     src/core/*.cpp
     src/encoder/*.h
     src/encoder/*.cpp
+    src/decoder/*.h
+    src/decoder/*.cpp
 )
 
 if(CORE_SRC)
@@ -35,6 +37,7 @@ if(CORE_SRC)
     target_include_directories(qrcore PUBLIC 
         src/core
         src/encoder
+        src/decoder
     )
     qr_warnings(qrcore)
 else()
@@ -72,7 +75,7 @@ if(QR_BUILD_APP)
 
     set(CMAKE_AUTOMOC ON)
 
-    find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia MultimediaWidgets)
 
     file(GLOB_RECURSE APP_SRC CONFIGURE_DEPENDS
         src/ui/*.h
@@ -97,6 +100,7 @@ if(QR_BUILD_APP)
         target_link_libraries(qrapp PRIVATE
             Qt6::Widgets
             Qt6::Multimedia
+            Qt6::MultimediaWidgets
         )
 
         if(TARGET qrcore)
