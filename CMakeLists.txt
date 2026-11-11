@@ -25,7 +25,7 @@ endfunction()
 # -------- CORE LIBRARY --------
 
 file(GLOB_RECURSE CORE_SRC CONFIGURE_DEPENDS
-    src/core/*.cp
+    src/core/*.cpp
     src/encoder/*.h
     src/encoder/*.cpp
 )
