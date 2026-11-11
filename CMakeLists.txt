@@ -28,6 +28,8 @@ file(GLOB_RECURSE CORE_SRC CONFIGURE_DEPENDS
     src/core/*.cpp
     src/encoder/*.h
     src/encoder/*.cpp
+    src/decoder/*.h
+    src/decoder/*.cpp
 )
 
 if(CORE_SRC)
@@ -35,6 +37,7 @@ if(CORE_SRC)
     target_include_directories(qrcore PUBLIC 
         src/core
         src/encoder
+        src/decoder
     )
     qr_warnings(qrcore)
 else()
