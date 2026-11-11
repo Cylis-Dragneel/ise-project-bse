@@ -8,9 +8,14 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QFileDialog>
+#include <QImage>
+#include <QPainter>
 #include <QPixmap>
 #include <QStatusBar>
 #include <QRegularExpressionValidator>
+#include <exception>
+#include <string>
+#include <vector>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -175,7 +180,7 @@ void MainWindow::uploadImage()
     if (fileName.isEmpty())
         return;
 
-    QPixmap image(fileName);
+    QImage image(fileName);
 
     if (image.isNull())
     {
@@ -184,12 +189,44 @@ void MainWindow::uploadImage()
     }
 
     readerPreview->setPixmap(
-        image.scaled(readerPreview->size(),
-                     Qt::KeepAspectRatio,
-                     Qt::SmoothTransformation));
+        QPixmap::fromImage(image).scaled(readerPreview->size(),
+                                         Qt::KeepAspectRatio,
+                                         Qt::SmoothTransformation));
 
-    statusBar()->showMessage(
-        "Image uploaded. Decoder integration pending.");
+    // Composite onto white so transparent images do not turn into black
+    // pixels when converted to grayscale.
+    QImage opaque(image.size(), QImage::Format_RGB32);
+    opaque.fill(Qt::white);
+    QPainter painter(&opaque);
+    painter.drawImage(0, 0, image);
+    painter.end();
+
+    const QImage grayscale = opaque.convertToFormat(QImage::Format_Grayscale8);
+
+    const std::vector<std::string> candidates = imageScanner.scan(
+        grayscale.constBits(),
+        grayscale.width(),
+        grayscale.height(),
+        grayscale.bytesPerLine());
+
+    for (const std::string &pattern : candidates)
+    {
+        try
+        {
+            const int number = decoder.decode(pattern);
+
+            decodedNumber->setText(QString("Decoded Number: %1").arg(number));
+            statusBar()->showMessage("Barcode decoded successfully.");
+            return;
+        }
+        catch (const std::exception &)
+        {
+            // This scan line did not contain a decodable barcode. Try the next.
+        }
+    }
+
+    decodedNumber->setText("Decoded Number: Not available");
+    statusBar()->showMessage("No readable barcode was found in this image.");
 }
 
 // Clear generator

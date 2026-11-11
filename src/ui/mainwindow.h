@@ -2,6 +2,8 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include "decoder/barcodeDecoder.h"
+#include "decoder/barcodeImageScanner.h"
 #include "encoder/barcodeEncoder.h"
 #include "renderer/BarcodeWidget.h" 
 
@@ -32,6 +34,8 @@ private:
     QPushButton *stopCameraButton;
 
     BarcodeEncoder encoder;
+    BarcodeDecoder decoder;
+    BarcodeImageScanner imageScanner;
 
     void generateBarcode();
     void uploadImage();
