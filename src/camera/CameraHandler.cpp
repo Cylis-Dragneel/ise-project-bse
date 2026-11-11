@@ -4,7 +4,15 @@
 #include <QDebug>
 #include <QMediaCaptureSession>
 #include <QMediaDevices>
+#include <QVideoFrame>
+#include <QVideoSink>
 #include <QVideoWidget>
+
+namespace {
+// Converting every camera frame to an image is expensive and unnecessary:
+// only the most recent snapshot is needed when the user stops the camera.
+constexpr qint64 kFrameIntervalMs = 200;
+}
 
 CameraHandler::CameraHandler(QVideoWidget *viewfinderWidget, QObject *parent)
     : QObject(parent), camera(nullptr), captureSession(nullptr),
@@ -48,6 +56,13 @@ bool CameraHandler::startCamera()
 
         if (viewfinder) {
             captureSession->setVideoOutput(viewfinder);
+
+            // The widget owns the sink that renders the preview; tapping it
+            // gives us frames without a second video output.
+            if (QVideoSink *sink = viewfinder->videoSink()) {
+                connect(sink, &QVideoSink::videoFrameChanged,
+                        this, &CameraHandler::handleFrame);
+            }
         }
     }
 
@@ -68,4 +83,36 @@ void CameraHandler::stopCamera()
 bool CameraHandler::isRunning() const
 {
     return camera && camera->isActive();
+}
+
+QImage CameraHandler::lastFrameImage() const
+{
+    return lastFrame;
+}
+
+void CameraHandler::clearLastFrame()
+{
+    lastFrame = QImage();
+    frameTimer.invalidate();
+}
+
+void CameraHandler::handleFrame(const QVideoFrame &frame)
+{
+    // Throttle the conversion; the preview itself still runs at full rate.
+    if (frameTimer.isValid() && frameTimer.elapsed() < kFrameIntervalMs) {
+        return;
+    }
+    frameTimer.start();
+
+    QVideoFrame readable(frame);
+    if (!readable.map(QVideoFrame::ReadOnly)) {
+        return;
+    }
+
+    const QImage image = readable.toImage();
+    readable.unmap();
+
+    if (!image.isNull()) {
+        lastFrame = image;
+    }
 }

@@ -7,6 +7,7 @@
 #include "encoder/barcodeEncoder.h"
 #include "renderer/BarcodeWidget.h" 
 
+class QImage;
 class QLineEdit;
 class QLabel;
 class QPushButton;
@@ -48,6 +49,11 @@ private:
     void clearGenerator();
     void startCamera();
     void stopCamera();
+
+    // Stops the preview and, when asked, tries to decode the last frame.
+    void stopCameraInternal(bool decodeFrame);
+    // Scans the image and updates decodedNumber. Returns true on success.
+    bool decodeImage(const QImage &image);
 };
 
 #endif

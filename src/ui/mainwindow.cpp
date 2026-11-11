@@ -270,7 +270,7 @@ void MainWindow::uploadImage()
 
     if (cameraHandler->isRunning())
     {
-        stopCamera();
+        stopCameraInternal(false);
     }
 
     readerPreview->setPixmap(
@@ -278,6 +278,99 @@ void MainWindow::uploadImage()
                                          Qt::KeepAspectRatio,
                                          Qt::SmoothTransformation));
 
+    if (decodeImage(image))
+    {
+        statusBar()->showMessage("Barcode decoded successfully.");
+        return;
+    }
+
+    statusBar()->showMessage("No readable barcode was found in this image.");
+}
+
+// Clear generator
+void MainWindow::clearGenerator()
+{
+    barcodeInput->clear();
+    barcodeRendererWidget->setPattern(""); // Clear the rendered barcode
+    saveButton->setEnabled(false);
+
+    statusBar()->showMessage("Generator cleared.");
+}
+
+// Start camera
+void MainWindow::startCamera()
+{
+    if (cameraHandler->isRunning())
+    {
+        return;
+    }
+
+    // Drop anything captured during a previous session so Stop cannot
+    // decode a stale frame.
+    cameraHandler->clearLastFrame();
+
+    if (!cameraHandler->startCamera())
+    {
+        // errorOccurred already reset the UI and reported the problem.
+        return;
+    }
+
+    readerPreview->hide();
+    cameraPreview->show();
+    startCameraButton->setEnabled(false);
+    stopCameraButton->setEnabled(true);
+    statusBar()->showMessage("Camera started.");
+}
+
+// Stop camera, then decode the last captured frame.
+void MainWindow::stopCamera()
+{
+    stopCameraInternal(true);
+}
+
+void MainWindow::stopCameraInternal(bool decodeFrame)
+{
+    const QImage frame = cameraHandler->lastFrameImage();
+
+    cameraHandler->stopCamera();
+    cameraHandler->clearLastFrame();
+
+    cameraPreview->hide();
+    readerPreview->show();
+    startCameraButton->setEnabled(true);
+    stopCameraButton->setEnabled(false);
+
+    if (!decodeFrame)
+    {
+        return;
+    }
+
+    if (frame.isNull())
+    {
+        statusBar()->showMessage(
+            "Camera stopped. No frame was captured.");
+        return;
+    }
+
+    // Show what was captured so the user sees what the decoder saw.
+    readerPreview->setPixmap(
+        QPixmap::fromImage(frame).scaled(readerPreview->size(),
+                                         Qt::KeepAspectRatio,
+                                         Qt::SmoothTransformation));
+
+    if (decodeImage(frame))
+    {
+        statusBar()->showMessage("Barcode decoded from camera.");
+        return;
+    }
+
+    statusBar()->showMessage(
+        "No readable barcode was found in the camera image.");
+}
+
+// Scans a frame or uploaded image and updates the decoded number.
+bool MainWindow::decodeImage(const QImage &image)
+{
     // Composite onto white so transparent images do not turn into black
     // pixels when converted to grayscale.
     QImage opaque(image.size(), QImage::Format_RGB32);
@@ -301,8 +394,7 @@ void MainWindow::uploadImage()
             const int number = decoder.decode(pattern);
 
             decodedNumber->setText(QString("Decoded Number: %1").arg(number));
-            statusBar()->showMessage("Barcode decoded successfully.");
-            return;
+            return true;
         }
         catch (const std::exception &)
         {
@@ -311,48 +403,5 @@ void MainWindow::uploadImage()
     }
 
     decodedNumber->setText("Decoded Number: Not available");
-    statusBar()->showMessage("No readable barcode was found in this image.");
-}
-
-// Clear generator
-void MainWindow::clearGenerator()
-{
-    barcodeInput->clear();
-    barcodeRendererWidget->setPattern(""); // Clear the rendered barcode
-    saveButton->setEnabled(false);
-
-    statusBar()->showMessage("Generator cleared.");
-}
-
-// Start camera
-void MainWindow::startCamera()
-{
-    if (cameraHandler->isRunning())
-    {
-        return;
-    }
-
-    if (!cameraHandler->startCamera())
-    {
-        // errorOccurred already reset the UI and reported the problem.
-        return;
-    }
-
-    readerPreview->hide();
-    cameraPreview->show();
-    startCameraButton->setEnabled(false);
-    stopCameraButton->setEnabled(true);
-    statusBar()->showMessage("Camera started.");
-}
-
-// Stop camera
-void MainWindow::stopCamera()
-{
-    cameraHandler->stopCamera();
-
-    cameraPreview->hide();
-    readerPreview->show();
-    startCameraButton->setEnabled(true);
-    stopCameraButton->setEnabled(false);
-    statusBar()->showMessage("Camera stopped.");
+    return false;
 }
