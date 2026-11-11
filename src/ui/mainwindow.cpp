@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QImage>
 #include <QPainter>
 #include <QPixmap>
@@ -118,6 +119,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(generateButton, &QPushButton::clicked,
             this, &MainWindow::generateBarcode);
 
+    connect(saveButton, &QPushButton::clicked,
+            this, &MainWindow::saveBarcode);
+
     connect(uploadButton, &QPushButton::clicked,
             this, &MainWindow::uploadImage);
 
@@ -166,6 +170,53 @@ void MainWindow::generateBarcode()
     {
         statusBar()->showMessage(e.what());
     }
+}
+
+// Save button
+void MainWindow::saveBarcode()
+{
+    if (!barcodeRendererWidget->hasPattern())
+    {
+        statusBar()->showMessage("Generate a barcode before saving.");
+        return;
+    }
+
+    QString selectedFilter;
+    QString fileName = QFileDialog::getSaveFileName(
+        this,
+        "Save Barcode Image",
+        "barcode.png",
+        "PNG image (*.png);;JPEG image (*.jpg *.jpeg);;Bitmap image (*.bmp)",
+        &selectedFilter);
+
+    if (fileName.isEmpty())
+        return;
+
+    if (QFileInfo(fileName).suffix().isEmpty())
+    {
+        if (selectedFilter.contains("JPEG"))
+            fileName += ".jpg";
+        else if (selectedFilter.contains("Bitmap"))
+            fileName += ".bmp";
+        else
+            fileName += ".png";
+    }
+
+    const QImage image = barcodeRendererWidget->renderImage();
+
+    if (image.isNull())
+    {
+        statusBar()->showMessage("There is no barcode to save.");
+        return;
+    }
+
+    if (!image.save(fileName))
+    {
+        statusBar()->showMessage("Unable to save the barcode image.");
+        return;
+    }
+
+    statusBar()->showMessage(QString("Barcode saved to %1").arg(fileName));
 }
 
 // Upload image button

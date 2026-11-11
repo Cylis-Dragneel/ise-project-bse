@@ -38,6 +38,7 @@ private:
     BarcodeImageScanner imageScanner;
 
     void generateBarcode();
+    void saveBarcode();
     void uploadImage();
     void clearGenerator();
     void startCamera();
