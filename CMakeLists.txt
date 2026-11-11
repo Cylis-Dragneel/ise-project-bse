@@ -26,11 +26,16 @@ endfunction()
 
 file(GLOB_RECURSE CORE_SRC CONFIGURE_DEPENDS
     src/core/*.cpp
+    src/encoder/*.h
+    src/encoder/*.cpp
 )
 
 if(CORE_SRC)
     add_library(qrcore STATIC ${CORE_SRC})
-    target_include_directories(qrcore PUBLIC src/core)
+    target_include_directories(qrcore PUBLIC 
+        src/core
+        src/encoder
+    )
     qr_warnings(qrcore)
 else()
     message(STATUS "No core source files found. Skipping qrcore.")
@@ -70,8 +75,12 @@ if(QR_BUILD_APP)
     find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia)
 
     file(GLOB_RECURSE APP_SRC CONFIGURE_DEPENDS
+        src/ui/*.h
+        src/camera/*.h
+        src/renderer/*.h
         src/ui/*.cpp
         src/camera/*.cpp
+        src/renderer/*.cpp
         src/main.cpp
     )
 
@@ -79,7 +88,11 @@ if(QR_BUILD_APP)
 
         add_executable(qrapp ${APP_SRC})
 
-        target_include_directories(qrapp PRIVATE src)
+        target_include_directories(qrapp PRIVATE 
+        src
+        src/encoder
+        src/renderer
+        )
 
         target_link_libraries(qrapp PRIVATE
             Qt6::Widgets

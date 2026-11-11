@@ -1,8 +1,9 @@
-
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include "encoder/barcodeEncoder.h"
+#include "renderer/BarcodeWidget.h" 
 
 class QLineEdit;
 class QLabel;
@@ -10,13 +11,16 @@ class QPushButton;
 
 class MainWindow : public QMainWindow
 {
+    Q_OBJECT
+
 public:
     MainWindow(QWidget *parent = nullptr);
 
 private:
     QLineEdit *barcodeInput;
 
-    QLabel *generatorPreview;
+    BarcodeWidget *barcodeRendererWidget; 
+    
     QLabel *readerPreview;
     QLabel *decodedNumber;
 
@@ -26,6 +30,8 @@ private:
     QPushButton *uploadButton;
     QPushButton *startCameraButton;
     QPushButton *stopCameraButton;
+
+    BarcodeEncoder encoder;
 
     void generateBarcode();
     void uploadImage();

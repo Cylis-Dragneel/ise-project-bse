@@ -1,4 +1,3 @@
-
 #include "mainwindow.h"
 
 #include <QWidget>
@@ -47,11 +46,11 @@ MainWindow::MainWindow(QWidget *parent)
         new QRegularExpressionValidator(regex, this));
 
     generateButton = new QPushButton("Generate Barcode");
-    generatorPreview = new QLabel("Barcode Preview");
-    generatorPreview->setAlignment(Qt::AlignCenter);
-    generatorPreview->setMinimumHeight(200);
-    generatorPreview->setStyleSheet(
-        "border: 1px solid gray; background: #f5f5f5;");
+
+    // Integrated custom BarcodeWidget renderer
+    barcodeRendererWidget = new BarcodeWidget(generatorPanel);
+    barcodeRendererWidget->setMinimumHeight(200);
+    barcodeRendererWidget->setStyleSheet("border: 1px solid gray; background: white;");
 
     saveButton = new QPushButton("Save Barcode Image");
     saveButton->setEnabled(false);
@@ -61,7 +60,7 @@ MainWindow::MainWindow(QWidget *parent)
     generatorLayout->addWidget(inputLabel);
     generatorLayout->addWidget(barcodeInput);
     generatorLayout->addWidget(generateButton);
-    generatorLayout->addWidget(generatorPreview);
+    generatorLayout->addWidget(barcodeRendererWidget);
     generatorLayout->addWidget(saveButton);
     generatorLayout->addWidget(clearButton);
 
@@ -108,7 +107,7 @@ MainWindow::MainWindow(QWidget *parent)
         "QGroupBox {"
         "font-weight: bold;"
         "}"
-    );
+        );
 
     // Button connections
     connect(generateButton, &QPushButton::clicked,
@@ -132,20 +131,36 @@ MainWindow::MainWindow(QWidget *parent)
 // Generate button
 void MainWindow::generateBarcode()
 {
-    QString number = barcodeInput->text();
+    QString textInput = barcodeInput->text();
 
-    if (number.length() != 6 || number[0] == '0')
+    bool ok;
+    int numberValue = textInput.toInt(&ok);
+
+    if (!ok)
     {
-        statusBar()->showMessage(
-            "Please enter exactly 6 digits. First digit cannot be zero.");
+        statusBar()->showMessage("Please enter a valid numeric value.");
         return;
     }
 
-    generatorPreview->setText(
-        "Barcode generation will be connected here.");
+    try
+    {
+        // Call the core C++ encoder
+        std::string binaryPattern = encoder.encode(numberValue);
 
-    statusBar()->showMessage(
-        "Input accepted. Generator integration pending.");
+        // Pass the binary pattern to your custom barcode renderer widget
+        barcodeRendererWidget->setPattern(binaryPattern);
+
+        saveButton->setEnabled(true); // Enable saving once generated
+        statusBar()->showMessage("Barcode generated successfully!");
+    }
+    catch (const std::out_of_range& e)
+    {
+        statusBar()->showMessage(e.what());
+    }
+    catch (const std::exception& e)
+    {
+        statusBar()->showMessage(e.what());
+    }
 }
 
 // Upload image button
@@ -181,7 +196,7 @@ void MainWindow::uploadImage()
 void MainWindow::clearGenerator()
 {
     barcodeInput->clear();
-    generatorPreview->setText("Barcode Preview");
+    barcodeRendererWidget->setPattern(""); // Clear the rendered barcode
     saveButton->setEnabled(false);
 
     statusBar()->showMessage("Generator cleared.");
