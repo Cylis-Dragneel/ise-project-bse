@@ -1,0 +1,219 @@
+#include "mainwindow.h"
+
+#include <QWidget>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGroupBox>
+#include <QLineEdit>
+#include <QLabel>
+#include <QPushButton>
+#include <QFileDialog>
+#include <QPixmap>
+#include <QStatusBar>
+#include <QRegularExpressionValidator>
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+{
+    setWindowTitle("Barcode Generator and Reader");
+    resize(1000, 650);
+
+    QWidget *central = new QWidget(this);
+    setCentralWidget(central);
+
+    QVBoxLayout *mainLayout = new QVBoxLayout(central);
+
+    QLabel *heading = new QLabel("Barcode Generator & Reader");
+    heading->setAlignment(Qt::AlignCenter);
+    heading->setStyleSheet("font-size: 26px; font-weight: bold;");
+
+    mainLayout->addWidget(heading);
+
+    QHBoxLayout *panelsLayout = new QHBoxLayout();
+
+    // Generator panel
+    QGroupBox *generatorPanel = new QGroupBox("Barcode Generator");
+    QVBoxLayout *generatorLayout = new QVBoxLayout(generatorPanel);
+
+    QLabel *inputLabel = new QLabel("Enter 6-digit number:");
+
+    barcodeInput = new QLineEdit();
+    barcodeInput->setMaxLength(6);
+    barcodeInput->setPlaceholderText("Example: 234567");
+
+    QRegularExpression regex("[1-9][0-9]{0,5}");
+    barcodeInput->setValidator(
+        new QRegularExpressionValidator(regex, this));
+
+    generateButton = new QPushButton("Generate Barcode");
+
+    // Integrated custom BarcodeWidget renderer
+    barcodeRendererWidget = new BarcodeWidget(generatorPanel);
+    barcodeRendererWidget->setMinimumHeight(200);
+    barcodeRendererWidget->setStyleSheet("border: 1px solid gray; background: white;");
+
+    saveButton = new QPushButton("Save Barcode Image");
+    saveButton->setEnabled(false);
+
+    clearButton = new QPushButton("Clear");
+
+    generatorLayout->addWidget(inputLabel);
+    generatorLayout->addWidget(barcodeInput);
+    generatorLayout->addWidget(generateButton);
+    generatorLayout->addWidget(barcodeRendererWidget);
+    generatorLayout->addWidget(saveButton);
+    generatorLayout->addWidget(clearButton);
+
+    // Reader panel
+    QGroupBox *readerPanel = new QGroupBox("Barcode Reader");
+    QVBoxLayout *readerLayout = new QVBoxLayout(readerPanel);
+
+    uploadButton = new QPushButton("Upload Barcode Image");
+
+    readerPreview = new QLabel("Uploaded Image Preview");
+    readerPreview->setAlignment(Qt::AlignCenter);
+    readerPreview->setMinimumHeight(200);
+    readerPreview->setStyleSheet(
+        "border: 1px solid gray; background: #f5f5f5;");
+
+    startCameraButton = new QPushButton("Start Camera");
+    stopCameraButton = new QPushButton("Stop Camera");
+
+    decodedNumber = new QLabel("Decoded Number: Not available");
+    decodedNumber->setAlignment(Qt::AlignCenter);
+
+    readerLayout->addWidget(uploadButton);
+    readerLayout->addWidget(readerPreview);
+    readerLayout->addWidget(startCameraButton);
+    readerLayout->addWidget(stopCameraButton);
+    readerLayout->addWidget(decodedNumber);
+
+    panelsLayout->addWidget(generatorPanel);
+    panelsLayout->addWidget(readerPanel);
+
+    mainLayout->addLayout(panelsLayout);
+
+    // Button styling
+    setStyleSheet(
+        "QPushButton {"
+        "padding: 9px;"
+        "background-color: #2878c8;"
+        "color: white;"
+        "border-radius: 5px;"
+        "}"
+        "QPushButton:hover {"
+        "background-color: #155a9c;"
+        "}"
+        "QGroupBox {"
+        "font-weight: bold;"
+        "}"
+        );
+
+    // Button connections
+    connect(generateButton, &QPushButton::clicked,
+            this, &MainWindow::generateBarcode);
+
+    connect(uploadButton, &QPushButton::clicked,
+            this, &MainWindow::uploadImage);
+
+    connect(clearButton, &QPushButton::clicked,
+            this, &MainWindow::clearGenerator);
+
+    connect(startCameraButton, &QPushButton::clicked,
+            this, &MainWindow::startCamera);
+
+    connect(stopCameraButton, &QPushButton::clicked,
+            this, &MainWindow::stopCamera);
+
+    statusBar()->showMessage("Application ready");
+}
+
+// Generate button
+void MainWindow::generateBarcode()
+{
+    QString textInput = barcodeInput->text();
+
+    bool ok;
+    int numberValue = textInput.toInt(&ok);
+
+    if (!ok)
+    {
+        statusBar()->showMessage("Please enter a valid numeric value.");
+        return;
+    }
+
+    try
+    {
+        // Call the core C++ encoder
+        std::string binaryPattern = encoder.encode(numberValue);
+
+        // Pass the binary pattern to your custom barcode renderer widget
+        barcodeRendererWidget->setPattern(binaryPattern);
+
+        saveButton->setEnabled(true); // Enable saving once generated
+        statusBar()->showMessage("Barcode generated successfully!");
+    }
+    catch (const std::out_of_range& e)
+    {
+        statusBar()->showMessage(e.what());
+    }
+    catch (const std::exception& e)
+    {
+        statusBar()->showMessage(e.what());
+    }
+}
+
+// Upload image button
+void MainWindow::uploadImage()
+{
+    QString fileName = QFileDialog::getOpenFileName(
+        this,
+        "Select Barcode Image",
+        "",
+        "Images (*.png *.jpg *.jpeg *.bmp)");
+
+    if (fileName.isEmpty())
+        return;
+
+    QPixmap image(fileName);
+
+    if (image.isNull())
+    {
+        statusBar()->showMessage("Unable to load image.");
+        return;
+    }
+
+    readerPreview->setPixmap(
+        image.scaled(readerPreview->size(),
+                     Qt::KeepAspectRatio,
+                     Qt::SmoothTransformation));
+
+    statusBar()->showMessage(
+        "Image uploaded. Decoder integration pending.");
+}
+
+// Clear generator
+void MainWindow::clearGenerator()
+{
+    barcodeInput->clear();
+    barcodeRendererWidget->setPattern(""); // Clear the rendered barcode
+    saveButton->setEnabled(false);
+
+    statusBar()->showMessage("Generator cleared.");
+}
+
+// Start camera placeholder
+void MainWindow::startCamera()
+{
+    statusBar()->showMessage(
+        "Camera integration pending.");
+}
+
+// Stop camera placeholder
+void MainWindow::stopCamera()
+{
+    statusBar()->showMessage(
+        "Camera stopped.");
+    readerPreview->setText("Uploaded Image Preview");
+    readerPreview->setPixmap(QPixmap());
+}
