@@ -104,6 +104,18 @@ int decodeFirst(const std::vector<std::string> &candidates)
     throw std::runtime_error("no scanner candidate could be decoded");
 }
 
+void fillRect(GrayImage &image, int x0, int y0, int width, int height,
+              unsigned char value)
+{
+    for (int y = y0; y < y0 + height; ++y)
+    {
+        const std::size_t rowStart =
+            static_cast<std::size_t>(y) * image.stride + x0;
+        std::fill(image.pixels.begin() + rowStart,
+                  image.pixels.begin() + rowStart + width, value);
+    }
+}
+
 } // namespace
 
 TEST_CASE(image_scanner_finds_pattern_at_multiple_scales)
@@ -163,6 +175,29 @@ TEST_CASE(image_scanner_finds_barcode_inside_larger_canvas)
                      image.stride);
 
     CHECK(contains(candidates, pattern));
+}
+
+TEST_CASE(image_scanner_finds_barcode_between_other_dark_objects)
+{
+    BarcodeEncoder encoder;
+    BarcodeImageScanner scanner;
+
+    const std::string pattern = encoder.encode(246810);
+    const int margin = 80;
+    GrayImage image = renderBarcode(pattern, 2, 6, margin, 20, 120);
+
+    // Dark objects on the same rows as the barcode, like a desk or a hand in
+    // a camera frame. The old whole-row scan counted their edges as barcode
+    // elements and gave up.
+    fillRect(image, 0, 0, 40, image.height, 0);
+    fillRect(image, image.width - 40, 0, 40, image.height, 0);
+
+    const std::vector<std::string> candidates =
+        scanner.scan(image.pixels.data(), image.width, image.height,
+                     image.stride);
+
+    CHECK(contains(candidates, pattern));
+    CHECK_EQ(decodeFirst(candidates), 246810);
 }
 
 TEST_CASE(image_scanner_ignores_stride_padding)

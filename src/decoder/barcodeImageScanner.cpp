@@ -1,31 +1,43 @@
 #include "barcodeImageScanner.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 
 namespace {
 
-const std::size_t ELEMENTS_PER_BARCODE = 79;
-const std::size_t WIDE_ELEMENTS_PER_BARCODE = 24; // 3 wide elements per character
-const std::size_t MAX_CANDIDATES = 16;
+constexpr std::size_t ELEMENTS_PER_BARCODE = 79;
+constexpr std::size_t WIDE_ELEMENTS_PER_BARCODE = 24; // 3 wide elements per character
+constexpr std::size_t MAX_CANDIDATES = 64;
 
-std::string classifyRuns(const std::vector<int> &runs)
+// Every Code 39 barcode starts with the same start/stop character. Checking
+// it before accepting a window throws away almost all noise candidates.
+constexpr char START_STOP_PATTERN[] = "010010100";
+constexpr std::size_t START_STOP_LENGTH = 9;
+
+// Classifies a single 79-element window of the row, using the window's own
+// 24 widest runs as the wide/narrow cutoff. Code 39 always has exactly 24
+// wide elements, so this works regardless of scale or perspective.
+std::string classifyWindow(const std::vector<int> &runs, std::size_t offset)
 {
-    if (runs.size() != ELEMENTS_PER_BARCODE)
-    {
-        return std::string();
-    }
+    std::array<int, ELEMENTS_PER_BARCODE> window;
+    std::copy_n(runs.begin() + static_cast<std::ptrdiff_t>(offset),
+                ELEMENTS_PER_BARCODE, window.begin());
 
-    // Code 39 always has exactly 24 wide elements in a 79-element barcode.
-    std::vector<int> sorted = runs;
-    std::sort(sorted.begin(), sorted.end());
+    std::array<int, ELEMENTS_PER_BARCODE> sorted = window;
+    std::nth_element(sorted.begin(),
+                     sorted.begin() +
+                         static_cast<std::ptrdiff_t>(ELEMENTS_PER_BARCODE -
+                                                     WIDE_ELEMENTS_PER_BARCODE),
+                     sorted.end());
+
     const int wideThreshold =
-        sorted[sorted.size() - WIDE_ELEMENTS_PER_BARCODE];
+        sorted[ELEMENTS_PER_BARCODE - WIDE_ELEMENTS_PER_BARCODE];
 
     std::string pattern;
-    pattern.reserve(runs.size());
+    pattern.reserve(ELEMENTS_PER_BARCODE);
 
-    for (int run : runs)
+    for (int run : window)
     {
         pattern.push_back(run >= wideThreshold ? '1' : '0');
     }
@@ -62,18 +74,12 @@ std::vector<std::string> BarcodeImageScanner::scan(
             continue;
         }
 
-        int last = width - 1;
-        while (last > first && row[last] >= threshold)
-        {
-            --last;
-        }
-
         std::vector<int> runs;
         runs.reserve(ELEMENTS_PER_BARCODE);
 
         bool currentIsBlack = true;
         int runLength = 0;
-        for (int x = first; x <= last; ++x)
+        for (int x = first; x < width; ++x)
         {
             const bool isBlack = row[x] < threshold;
             if (isBlack == currentIsBlack)
@@ -89,19 +95,31 @@ std::vector<std::string> BarcodeImageScanner::scan(
         }
         runs.push_back(runLength);
 
-        const std::string pattern = classifyRuns(runs);
-        if (pattern.empty())
+        if (runs.size() < ELEMENTS_PER_BARCODE)
         {
             continue;
         }
 
-        if (std::find(candidates.begin(), candidates.end(), pattern) ==
-            candidates.end())
+        // A row can contain other dark objects around the barcode, so try
+        // every possible 79-element window instead of assuming the whole
+        // row is one barcode. Windows must start on a black run (even index).
+        for (std::size_t offset = 0;
+             offset + ELEMENTS_PER_BARCODE <= runs.size(); offset += 2)
         {
-            candidates.push_back(pattern);
-            if (candidates.size() >= MAX_CANDIDATES)
+            const std::string pattern = classifyWindow(runs, offset);
+            if (pattern.compare(0, START_STOP_LENGTH, START_STOP_PATTERN) != 0)
             {
-                break;
+                continue;
+            }
+
+            if (std::find(candidates.begin(), candidates.end(), pattern) ==
+                candidates.end())
+            {
+                candidates.push_back(pattern);
+                if (candidates.size() >= MAX_CANDIDATES)
+                {
+                    return candidates;
+                }
             }
         }
     }
