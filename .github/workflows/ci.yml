@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: core + tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DQR_BUILD_APP=OFF -DQR_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+  app:
+    name: app (${{ matrix.os }})
+    needs: core
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux GUI build deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libxkbcommon-dev
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.7.*"
+          modules: "qtmultimedia"
+          cache: true
+      - name: Configure
+        run: cmake -S . -B build -DQR_BUILD_APP=ON -DQR_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --parallel
