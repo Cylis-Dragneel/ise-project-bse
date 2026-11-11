@@ -4,7 +4,8 @@ config := "Release"
 core_dir := "build/core"
 app_dir := "build/app"
 
-# Windows: set QT_PREFIX=C:/Qt/6.7.3/msvc2019_64. On Nix/Linux leave it empty.
+# Windows: set QT_PREFIX to your Qt kit, e.g.
+# C:/Qt/6.7.3/msvc2019_64 or C:/Qt/6.8.0/mingw_64. On Nix/Linux leave it empty.
 qt_prefix := env("QT_PREFIX", "")
 prefix_arg := if qt_prefix == "" { "" } else { "-DCMAKE_PREFIX_PATH=" + qt_prefix }
 
@@ -31,7 +32,7 @@ run: app
 
 [windows]
 run: app
-    .\{{ app_dir }}\{{ config }}\qrapp.exe
+    if (Test-Path '.\{{ app_dir }}\{{ config }}\qrapp.exe') { .\{{ app_dir }}\{{ config }}\qrapp.exe } else { .\{{ app_dir }}\qrapp.exe }
 
 # Everything CI does; run before pushing
 check: test app
