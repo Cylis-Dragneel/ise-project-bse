@@ -1,0 +1,5 @@
+1001 123456 MILK "Fresh Milk" count 250 25 10 50 milk.png
+1002 234567 BREAD "Brown Bread" count 150 15 0 30 bread.png
+1003 345678 RICE "Basmati Rice" weight 300 30 20 100 rice.png
+1004 456789 JUICE "Mango Juice" count 180 18 5 40 juice.png
+#
