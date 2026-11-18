@@ -30,20 +30,24 @@ file(GLOB_RECURSE CORE_SRC CONFIGURE_DEPENDS
     src/encoder/*.cpp
     src/decoder/*.h
     src/decoder/*.cpp
+    src/models/*.h
+    src/managers/*.h
+    src/managers/*.cpp
 )
 
 if(CORE_SRC)
     add_library(qrcore STATIC ${CORE_SRC})
-    target_include_directories(qrcore PUBLIC 
+    target_include_directories(qrcore PUBLIC
         src/core
         src/encoder
         src/decoder
+        src/models
+        src/managers
     )
     qr_warnings(qrcore)
 else()
     message(STATUS "No core source files found. Skipping qrcore.")
 endif()
-
 # -------- TESTS --------
 
 if(QR_BUILD_TESTS)
