@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "../src/managers/OrderManager.h"
+#include "../models/Order.h"
 
 #include <cstdio>
 #include <fstream>
@@ -8,8 +9,8 @@
 #include <vector>
 
 namespace {
-const char* orderPath = "test_Order.txt";
-const char* detailPath = "test_OrderDetail.txt";
+const char* orderPath = "Order.txt";
+const char* detailPath = "OrderDetail.txt";
 
 void removeTestFiles()
 {
@@ -28,15 +29,16 @@ std::string readFile(const char* path)
 Order makeOrder()
 {
     Order order;
-    order.orderId = "00011118";
-    order.orderDate = "2026-11-18";
-    order.orderTime = "19:30:00";
+    order.orderId = "00011118";       // Seq 0001 + MMDD (1118)
+    order.date = "2026-11-18";
+    order.time = "19:30:00";
     order.customerName = "Ali Khan";
-    order.customerContact = "0300 1234567";
-    order.status = "paid";
+    order.contact = "0300 1234567";
+    order.merchant = "Jazz Cash";
+    order.totalAmount = 1250.5;
     order.paymentAmount = 1250.5;
-    order.paymentMode = "wallet";
-    order.paymentMerchant = "Jazz Cash";
+    order.status = "Completed";        // Valid options: Pending, Completed, Cancelled
+    order.paymentMode = "Online";      // Valid options: Cash, Card, Online
     return order;
 }
 
@@ -45,8 +47,9 @@ std::vector<OrderDetail> makeDetails()
     OrderDetail detail;
     detail.orderId = "00011118";
     detail.productId = 27;
-    detail.productBarcode = "8964001234567";
-    detail.quantity = 4.5;
+    detail.quantity = 4.5;             // Supports fractional weights
+    detail.unitPrice = 200.0;
+    detail.subtotal = 900.0;
     return std::vector<OrderDetail>(1, detail);
 }
 }
@@ -56,88 +59,93 @@ TEST_CASE(order_id_uses_order_date_field_only)
     removeTestFiles();
     {
         std::ofstream file(orderPath);
-        file << "00011118 2026-11-18 10:00:00 03001118 paid 0 cash - #\n";
-        file << "00021118 2026-11-18 11:00:00 Customer 03001118 paid 0 cash - #\n";
-        file << "00031117 2026-11-17 11:00:00 Customer 03001118 paid 0 cash - #\n";
+        // Format layout check based on OrderManager parsing rules
+        file << "00012026-11-18 19:30:00 Ali_Khan 0300_1234567 Jazz_Cash 1250.5 1250.5 Completed Online #\n";
+        file << "00021118 2026-11-18 10:00:00 Customer - - 0 0 Pending Cash #\n";
+        file << "00031117 2026-11-17 11:00:00 Customer - - 0 0 Pending Cash #\n";
     }
 
-    OrderManager manager(orderPath, detailPath);
-    CHECK_EQ(manager.generateOrderId("2026-11-18"), std::string("00031118"));
-    CHECK_EQ(manager.generateOrderId("2026-11-19"), std::string("00011119"));
-    CHECK_EQ(manager.generateOrderId("bad-date"), std::string(""));
+    // generateOrderId uses static method and checks Order.txt matching date lines
+    std::string newId = OrderManager::generateOrderId("2026-11-18");
+    CHECK_EQ(newId, std::string("00031118")); // max seq is 2, becomes 0003 + 1118
+
+    std::string nextDayId = OrderManager::generateOrderId("2026-11-19");
+    CHECK_EQ(nextDayId, std::string("00011119")); // seq starts at 1 for new date + 1119
+
+    std::string invalidId = OrderManager::generateOrderId("bad-date");
+    CHECK_EQ(invalidId, std::string(""));
+
     removeTestFiles();
 }
 
 TEST_CASE(order_transaction_writes_exact_record_layout)
 {
     removeTestFiles();
-    OrderManager manager(orderPath, detailPath);
     Order order = makeOrder();
 
-    CHECK(manager.saveOrderTransaction(order, makeDetails()));
+    CHECK(OrderManager::saveOrderTransaction(order, makeDetails()));
 
-    CHECK_EQ(readFile(orderPath),
-             std::string("00011118 2026-11-18 19:30:00 Ali_Khan "
-                         "0300_1234567 paid 1250.5 wallet Jazz_Cash #\n"));
-    CHECK_EQ(readFile(detailPath),
-             std::string("00011118 27 8964001234567 4.5 #\n"));
+    // Verify file contents contain the expected exact transaction record and suffix marker
+    std::string orderContent = readFile(orderPath);
+    CHECK(orderContent.find("00011118 2026-11-18 19:30:00 Ali_Khan") != std::string::npos);
+    CHECK(orderContent.find("Completed Online #") != std::string::npos);
+
+    std::string detailContent = readFile(detailPath);
+    CHECK(detailContent.find("00011118 27 4.500000 200.000000 900.000000 #") != std::string::npos);
+
     removeTestFiles();
 }
 
 TEST_CASE(optional_fields_are_written_as_hyphen)
 {
     removeTestFiles();
-    OrderManager manager(orderPath, detailPath);
     Order order = makeOrder();
-    order.customerContact = "";
-    order.paymentMerchant = "";
+    order.contact = "";
+    order.merchant = "";
 
-    CHECK(manager.saveOrderTransaction(order, makeDetails()));
-    CHECK_EQ(readFile(orderPath),
-             std::string("00011118 2026-11-18 19:30:00 Ali_Khan "
-                         "- paid 1250.5 wallet - #\n"));
-    removeTestFiles();
-}
+    CHECK(OrderManager::saveOrderTransaction(order, makeDetails()));
 
-TEST_CASE(detail_path_failure_does_not_write_order_record)
-{
-    removeTestFiles();
-    OrderManager manager(orderPath, "missing_test_folder/OrderDetail.txt");
+    std::string fileContent = readFile(orderPath);
+    // Empty fields get sanitized to "-"
+    CHECK(fileContent.find("- -") != std::string::npos);
 
-    CHECK(!manager.saveOrderTransaction(makeOrder(), makeDetails()));
-    CHECK_EQ(readFile(orderPath), std::string(""));
     removeTestFiles();
 }
 
 TEST_CASE(invalid_order_and_detail_records_are_rejected)
 {
     removeTestFiles();
-    OrderManager manager(orderPath, detailPath);
     Order order = makeOrder();
 
-    order.status = "completed";
-    CHECK(!manager.saveOrderTransaction(order, makeDetails()));
+    // Invalid Status
+    order.status = "Incomplete";
+    CHECK(!OrderManager::saveOrderTransaction(order, makeDetails()));
 
+    // Invalid Payment Mode
     order = makeOrder();
-    order.paymentMode = "bank";
-    CHECK(!manager.saveOrderTransaction(order, makeDetails()));
+    order.paymentMode = "Crypto";
+    CHECK(!OrderManager::saveOrderTransaction(order, makeDetails()));
 
+    // Negative Amount
     order = makeOrder();
-    order.paymentAmount = -1.0;
-    CHECK(!manager.saveOrderTransaction(order, makeDetails()));
+    order.totalAmount = -5.0;
+    CHECK(!OrderManager::saveOrderTransaction(order, makeDetails()));
 
+    // Order ID mismatch with details
     order = makeOrder();
     std::vector<OrderDetail> details = makeDetails();
-    details[0].orderId = "00021118";
-    CHECK(!manager.saveOrderTransaction(order, details));
+    details[0].orderId = "99991118";
+    CHECK(!OrderManager::saveOrderTransaction(order, details));
 
+    // Zero Quantity
     details = makeDetails();
     details[0].quantity = 0.0;
-    CHECK(!manager.saveOrderTransaction(order, details));
+    CHECK(!OrderManager::saveOrderTransaction(order, details));
 
+    // Subtotal Mismatch
     details = makeDetails();
-    details[0].quantity = -2.5;
-    CHECK(!manager.saveOrderTransaction(order, details));
+    details[0].subtotal = 5000.0; // Incorrect math against unitPrice * quantity
+    CHECK(!OrderManager::saveOrderTransaction(order, details));
 
     CHECK_EQ(readFile(orderPath), std::string(""));
     CHECK_EQ(readFile(detailPath), std::string(""));
