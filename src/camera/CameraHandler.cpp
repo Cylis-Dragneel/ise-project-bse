@@ -114,5 +114,6 @@ void CameraHandler::handleFrame(const QVideoFrame &frame)
 
     if (!image.isNull()) {
         lastFrame = image;
+        emit frameReady(lastFrame);
     }
 }

@@ -30,6 +30,11 @@ public:
 signals:
     void errorOccurred(const QString &message);
 
+    // Emitted (throttled) whenever a readable camera frame is available.
+    // The scanner service connects to this; CameraHandler stays unaware of
+    // what the frame is used for.
+    void frameReady(const QImage &frame);
+
 private:
     void handleFrame(const QVideoFrame &frame);
 

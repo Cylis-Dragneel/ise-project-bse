@@ -2,8 +2,6 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-#include "decoder/barcodeDecoder.h"
-#include "decoder/barcodeImageScanner.h"
 #include "encoder/barcodeEncoder.h"
 #include "renderer/BarcodeWidget.h" 
 
@@ -13,6 +11,7 @@ class QLabel;
 class QPushButton;
 class QVideoWidget;
 class CameraHandler;
+class BarcodeScannerService;
 
 class MainWindow : public QMainWindow
 {
@@ -30,6 +29,7 @@ private:
     QLabel *readerPreview;
     QVideoWidget *cameraPreview;
     CameraHandler *cameraHandler;
+    BarcodeScannerService *scannerService;
     QLabel *decodedNumber;
 
     QPushButton *generateButton;
@@ -40,8 +40,6 @@ private:
     QPushButton *stopCameraButton;
 
     BarcodeEncoder encoder;
-    BarcodeDecoder decoder;
-    BarcodeImageScanner imageScanner;
 
     void generateBarcode();
     void saveBarcode();

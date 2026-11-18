@@ -85,9 +85,11 @@ if(QR_BUILD_APP)
         src/ui/*.h
         src/camera/*.h
         src/renderer/*.h
+        src/scanning/*.h
         src/ui/*.cpp
         src/camera/*.cpp
         src/renderer/*.cpp
+        src/scanning/*.cpp
         src/main.cpp
     )
 
