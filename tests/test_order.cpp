@@ -28,6 +28,13 @@ std::string readFile(const char *path)
     return contents.str();
 }
 
+// Fixtures are committed next to the sources so CI parses real files rather
+// than only strings built in the test itself.
+std::string fixturePath(const char *name)
+{
+    return std::string(QR_TEST_SOURCE_DIR) + "/tests/fixtures/" + name;
+}
+
 Order makeOrder()
 {
     Order order;
@@ -302,6 +309,45 @@ TEST_CASE(malformed_detail_lines_are_skipped_on_load)
     CHECK_EQ(details.size(), static_cast<std::size_t>(1));
     CHECK_EQ(details[0].productBarcode, std::string("428647"));
     CHECK(details[0].quantity == 4.5);
+
+    removeTestFiles();
+}
+
+TEST_CASE(committed_order_fixtures_parse_and_round_trip)
+{
+    removeTestFiles();
+
+    const std::string orderFixture = fixturePath("Order.txt");
+    const std::string detailFixture = fixturePath("OrderDetail.txt");
+
+    const std::vector<Order> orders = OrderManager::loadOrders(orderFixture);
+    CHECK_EQ(orders.size(), static_cast<std::size_t>(3));
+
+    CHECK_EQ(orders[0].orderId, std::string("00011118"));
+    CHECK_EQ(orders[0].customerName, std::string("Ali Khan"));
+    CHECK_EQ(orders[0].status, std::string("paid"));
+    CHECK(orders[0].paymentAmount == 1250.5);
+
+    CHECK_EQ(orders[1].orderId, std::string("00021118"));
+    CHECK_EQ(orders[1].status, std::string("in-progress"));
+    CHECK_EQ(orders[1].customerName, std::string(""));
+
+    CHECK_EQ(orders[2].orderId, std::string("00011119"));
+    CHECK_EQ(orders[2].paymentMode, std::string("wallet"));
+
+    // Every committed row must survive a load/save round trip unchanged. A
+    // writer/reader format drift then fails CI instead of only the app.
+    for (const Order &order : orders)
+    {
+        const std::vector<OrderDetail> details =
+            OrderManager::loadOrderDetails(order.orderId, detailFixture);
+        CHECK(!details.empty());
+        CHECK(OrderManager::saveOrderTransaction(order, details, orderPath,
+                                                 detailPath));
+    }
+
+    CHECK_EQ(readFile(orderPath), readFile(orderFixture.c_str()));
+    CHECK_EQ(readFile(detailPath), readFile(detailFixture.c_str()));
 
     removeTestFiles();
 }

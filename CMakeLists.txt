@@ -63,6 +63,9 @@ if(QR_BUILD_TESTS)
         add_executable(qr_tests ${TEST_SRC})
         target_link_libraries(qr_tests PRIVATE qrcore)
         target_include_directories(qr_tests PRIVATE tests)
+        # Committed fixtures live next to the sources, not in the build tree.
+        target_compile_definitions(qr_tests PRIVATE
+            QR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
         qr_warnings(qr_tests)
 
         add_test(NAME qr_tests COMMAND qr_tests)
