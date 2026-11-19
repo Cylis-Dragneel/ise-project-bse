@@ -227,7 +227,7 @@ TEST_CASE(product_rejects_invalid_fields)
     // Boundary values that must be accepted.
     CHECK(Product(1, "100000", "A", "Name", count, 0, 0, 0, 0, "a.png").id() == 1);
 
-    CHECK_EQ(toString(MeasurementUnit::Weight), std::string("weight"));
+    CHECK_EQ(measurementUnitToString(MeasurementUnit::Weight), std::string("weight"));
     CHECK(measurementUnitFromString("COUNT") == MeasurementUnit::Count);
     CHECK_THROWS_AS(measurementUnitFromString("kg"), std::invalid_argument);
 }
@@ -276,6 +276,11 @@ TEST_CASE(catalog_deduct_stock_persists_and_is_all_or_nothing)
     reloaded.load();
     CHECK(reloaded.findByBarcode("428647")->availableQuantity() == 35.0);
 
+    // A non-positive quantity is a bad request, not a stock shortage.
+    CHECK_THROWS_AS(catalog.deductStock({{"428647", 0.0}}), std::invalid_argument);
+    CHECK_THROWS_AS(catalog.deductStock({{"428647", -1.0}}), std::invalid_argument);
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == 35.0);
+
     // Unknown barcode: nothing changes.
     CHECK_THROWS_AS(catalog.deductStock({{"428647", 1.0}, {"111111", 1.0}}),
                     std::invalid_argument);
@@ -323,8 +328,11 @@ TEST_CASE(product_record_round_trips_through_the_codec)
     CHECK(!record.empty());
     CHECK_EQ(record.back(), '#');
 
-    const Product parsed =
+    // parse() accepts both the bare record and the '#'-terminated form.
+    const Product parsed = ProductRecordCodec::parse(record);
+    const Product bare =
         ProductRecordCodec::parse(record.substr(0, record.size() - 1));
+    CHECK_EQ(bare.id(), parsed.id());
 
     CHECK_EQ(parsed.id(), original.id());
     CHECK_EQ(parsed.barcode(), original.barcode());
@@ -369,4 +377,22 @@ TEST_CASE(number_format_helpers_print_plain_decimal)
     CHECK_EQ(NumberFormat::general(0.0), std::string("0"));
     CHECK_EQ(NumberFormat::money(280.0), std::string("280.00"));
     CHECK_EQ(NumberFormat::money(4.756), std::string("4.76"));
+}
+
+TEST_CASE(sample_data_matches_the_committed_barcode_images)
+{
+    const std::string dataDir = std::string(QR_TEST_SOURCE_DIR) + "/data";
+
+    ProductCatalog catalog(
+        std::make_shared<FileProductRepository>(dataDir + "/Product.txt"));
+    catalog.load();
+
+    CHECK_EQ(catalog.all().size(), static_cast<std::size_t>(7));
+
+    // Every image path in the sample must resolve next to Product.txt.
+    for (const Product &product : catalog.all())
+    {
+        std::ifstream image(dataDir + "/" + product.barcodeImagePath());
+        CHECK(image.good());
+    }
 }

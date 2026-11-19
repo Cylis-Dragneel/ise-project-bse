@@ -19,7 +19,8 @@ public:
     // Throws std::invalid_argument if the last record has no '#'.
     static std::vector<std::string> splitRecords(const std::string& fileContent);
 
-    // Parses ONE record (without the '#'). Throws std::invalid_argument.
+    // Parses ONE record (without the '#'). A trailing '#' is also accepted, so
+    // the output of format() can be parsed directly. Throws std::invalid_argument.
     static Product parse(const std::string& record);
 
     // One record including the '#' marker (no newline).

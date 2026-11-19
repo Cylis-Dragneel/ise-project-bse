@@ -6,7 +6,7 @@
 using std::invalid_argument;
 using std::string;
 
-string toString(MeasurementUnit unit)
+string measurementUnitToString(MeasurementUnit unit)
 {
     return unit == MeasurementUnit::Count ? "count" : "weight";
 }
