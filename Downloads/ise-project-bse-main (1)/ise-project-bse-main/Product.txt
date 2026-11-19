@@ -1,0 +1,3 @@
+1001 123456 LAYS Lays_Chips count 50 5 2 100 barcodes/1001.png #
+1002 234567 COKE Coca_Cola count 120 10 0 50 barcodes/1002.png #
+1003 345678 RICE Basmati_Rice weight 350 20 10 200 barcodes/1003.png #
