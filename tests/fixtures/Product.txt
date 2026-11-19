@@ -1,0 +1,4 @@
+1 428647 MILK1L Milk_1_Litre count 280 14 10 50 barcodes/428647.png#
+2 358306 RICE5KG Basmati_Rice_5kg count 1450 72.5 50 20 barcodes/358306.png#
+3 579158 SUGAR Sugar_Loose weight 160 8 0 35.5 barcodes/579158.png#
+5 381093 SOAP Bath_Soap count 95 4.75 5 0 barcodes/381093.png#
