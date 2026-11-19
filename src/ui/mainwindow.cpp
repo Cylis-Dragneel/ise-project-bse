@@ -20,23 +20,6 @@
 #include <exception>
 #include <string>
 
-namespace {
-
-// On Linux, Qt hands the dialog to the desktop portal, which aborts the whole
-// app when the GTK file-chooser schema is missing (minimal Nix shells, dev
-// containers). Qt's own dialog has no such dependency; Windows and macOS keep
-// their native pickers.
-QFileDialog::Options fileDialogOptions()
-{
-#if defined(Q_OS_LINUX)
-    return QFileDialog::DontUseNativeDialog;
-#else
-    return QFileDialog::Options();
-#endif
-}
-
-} // namespace
-
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
@@ -270,8 +253,7 @@ void MainWindow::saveBarcode()
         "Save Barcode Image",
         defaultName,
         "PNG image (*.png);;JPEG image (*.jpg *.jpeg);;Bitmap image (*.bmp)",
-        &selectedFilter,
-        fileDialogOptions());
+        &selectedFilter);
 
     if (fileName.isEmpty())
         return;
@@ -310,9 +292,7 @@ void MainWindow::uploadImage()
         this,
         "Select Barcode Image",
         "",
-        "Images (*.png *.jpg *.jpeg *.bmp)",
-        nullptr,
-        fileDialogOptions());
+        "Images (*.png *.jpg *.jpeg *.bmp)");
 
     if (fileName.isEmpty())
         return;
