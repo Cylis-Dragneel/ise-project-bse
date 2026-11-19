@@ -146,8 +146,13 @@ MainWindow::MainWindow(QWidget *parent)
                 //   // ProductResolver::Result result = resolver.lookup(barcode);
                 //   // posWindow->showProduct(result);
                 //   // OrderManager::saveOrderTransaction(order, details);
-                // Person C's BillingService::generateBill(order) is the next
-                // step after the order is saved.
+                // Billing is ready in src/core/billing: after the order is
+                // saved, BillingService::generateBill(order) writes Bill.txt
+                // and returns the totals for the bill screen.
+                //   //#include "billing/BillingService.h"
+                //   //#include "billing/FileBillRepository.h"
+                //   // BillingService billing(catalog, std::make_shared<FileBillRepository>("Bill.txt"));
+                //   // Bill bill = billing.generateBill(order);
             });
 
     // Button styling
