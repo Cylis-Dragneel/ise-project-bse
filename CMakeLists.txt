@@ -116,6 +116,14 @@ if(QR_BUILD_APP)
             target_link_libraries(qrapp PRIVATE qrcore)
         endif()
 
+        # Keep the sample data next to the executable so Product.txt and its
+        # barcode images are found regardless of the working directory.
+        add_custom_command(TARGET qrapp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/data"
+                "$<TARGET_FILE_DIR:qrapp>/data"
+        )
+
         qr_warnings(qrapp)
 
     endif()
