@@ -218,6 +218,7 @@ void MainWindow::generateBarcode()
         // Pass the binary pattern to your custom barcode renderer widget
         barcodeRendererWidget->setPattern(binaryPattern);
 
+        lastGeneratedNumber = QString::number(numberValue);
         saveButton->setEnabled(true); // Enable saving once generated
         statusBar()->showMessage("Barcode generated successfully!");
     }
@@ -240,11 +241,17 @@ void MainWindow::saveBarcode()
         return;
     }
 
+    // Default the filename to the number that produced the barcode, so saved
+    // images match the paths in Product.txt (barcodes/<number>.png).
+    const QString defaultName =
+        lastGeneratedNumber.isEmpty() ? QStringLiteral("barcode.png")
+                                      : lastGeneratedNumber + ".png";
+
     QString selectedFilter;
     QString fileName = QFileDialog::getSaveFileName(
         this,
         "Save Barcode Image",
-        "barcode.png",
+        defaultName,
         "PNG image (*.png);;JPEG image (*.jpg *.jpeg);;Bitmap image (*.bmp)",
         &selectedFilter);
 
@@ -322,6 +329,7 @@ void MainWindow::clearGenerator()
 {
     barcodeInput->clear();
     barcodeRendererWidget->setPattern(""); // Clear the rendered barcode
+    lastGeneratedNumber.clear();
     saveButton->setEnabled(false);
 
     statusBar()->showMessage("Generator cleared.");

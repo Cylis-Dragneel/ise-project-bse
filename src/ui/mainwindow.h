@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QString>
 #include "encoder/barcodeEncoder.h"
 #include "renderer/BarcodeWidget.h" 
 
@@ -40,6 +41,10 @@ private:
     QPushButton *stopCameraButton;
 
     BarcodeEncoder encoder;
+
+    // Number used for the pattern currently on screen; becomes the default
+    // filename when the image is saved.
+    QString lastGeneratedNumber;
 
     void generateBarcode();
     void saveBarcode();
