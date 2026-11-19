@@ -68,6 +68,11 @@ vcpkg_installed/
 Testing/
 .cache/
 
+# POS runtime data written next to the executable / working directory
+/Order.txt
+/OrderDetail.txt
+/Bill.txt
+
 # IDE files
 .vscode/
 .idea/

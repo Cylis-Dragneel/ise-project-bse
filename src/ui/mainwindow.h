@@ -13,6 +13,7 @@ class QPushButton;
 class QVideoWidget;
 class CameraHandler;
 class BarcodeScannerService;
+class PosWindow;
 
 class MainWindow : public QMainWindow
 {
@@ -32,6 +33,7 @@ private:
     CameraHandler *cameraHandler;
     BarcodeScannerService *scannerService;
     QLabel *decodedNumber;
+    PosWindow *posWindow = nullptr;
 
     QPushButton *generateButton;
     QPushButton *saveButton;

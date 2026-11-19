@@ -1,8 +1,10 @@
 #include "mainwindow.h"
 
+#include "PosWindow.h"
 #include "camera/CameraHandler.h"
 #include "scanning/BarcodeScannerService.h"
 
+#include <QTabWidget>
 #include <QWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -24,12 +26,13 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setWindowTitle("Barcode Generator and Reader");
-    resize(1000, 650);
+    resize(1200, 800);
 
-    QWidget *central = new QWidget(this);
-    setCentralWidget(central);
+    QTabWidget *tabs = new QTabWidget(this);
+    setCentralWidget(tabs);
 
-    QVBoxLayout *mainLayout = new QVBoxLayout(central);
+    QWidget *barcodePage = new QWidget();
+    QVBoxLayout *mainLayout = new QVBoxLayout(barcodePage);
 
     QLabel *heading = new QLabel("Barcode Generator & Reader");
     heading->setAlignment(Qt::AlignCenter);
@@ -189,6 +192,27 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(stopCameraButton, &QPushButton::clicked,
             this, &MainWindow::stopCamera);
+
+    tabs->addTab(barcodePage, "Barcode Tool");
+
+    posWindow = new PosWindow(this);
+    tabs->addTab(posWindow, "Point of Sale");
+
+    // Only one tab may own the camera at a time.
+    connect(tabs, &QTabWidget::currentChanged, this,
+            [this](int index) {
+                if (index == 0)
+                {
+                    if (posWindow != nullptr)
+                    {
+                        posWindow->stopCamera();
+                    }
+                }
+                else
+                {
+                    stopCameraInternal(false);
+                }
+            });
 
     statusBar()->showMessage("Application ready");
 }
