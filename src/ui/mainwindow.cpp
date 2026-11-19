@@ -137,14 +137,14 @@ MainWindow::MainWindow(QWidget *parent)
                 scannerService->stop();
 
                 // TODO(integration): forward `barcode` to the POS order-entry
-                // or description screen once Person A's catalog and Person D's
-                // PosWindow are merged. The order entry will call Person B's
-                // already-merged OrderManager for persistence:
-                //   //#include "catalog/ProductCatalog.h"
+                // or description screen once Person D's PosWindow is merged.
+                // ProductResolver (src/core/catalog) already turns the barcode
+                // into a product, a description and a user-facing error:
+                //   //#include "catalog/ProductResolver.h"
                 //   //#include "ui/poswindow.h"
                 //   //#include "managers/OrderManager.h"
-                //   // const Product *product = catalog.findByBarcode(barcode);
-                //   // posWindow->showProduct(product);
+                //   // ProductResolver::Result result = resolver.lookup(barcode);
+                //   // posWindow->showProduct(result);
                 //   // OrderManager::saveOrderTransaction(order, details);
                 // Person C's BillingService::generateBill(order) is the next
                 // step after the order is saved.
@@ -425,8 +425,8 @@ bool MainWindow::decodeImage(const QImage &image)
         QString("Decoded Number: %1").arg(QString::fromStdString(barcode)));
 
     // TODO(integration): forward `barcode` to the POS order-entry or
-    // description screen once Person A's catalog and Person D's PosWindow are
-    // merged. The order entry will call Person B's already-merged OrderManager
-    // for persistence and Person C's BillingService for the bill.
+    // description screen once Person D's PosWindow is merged. ProductResolver
+    // (src/core/catalog) already produces the product, its description and the
+    // user-facing error message; the UI only has to display them.
     return true;
 }
