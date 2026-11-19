@@ -90,12 +90,12 @@ TEST_CASE(resolver_checks_quantity_against_stock)
     CHECK(fixture.resolver.lookupForQuantity("428647", 50.0).found());
 
     const ProductResolver::Result tooMany =
-        fixture.resolver.lookupForQuantity("428647", 50.5);
+        fixture.resolver.lookupForQuantity("428647", 51.0);
     CHECK(tooMany.status == ProductResolver::Status::InsufficientStock);
     // The product is still known, so the UI can show the specs.
     CHECK(tooMany.product != nullptr);
     CHECK(!tooMany.description.empty());
-    CHECK(tooMany.message.find("50.5") != std::string::npos);
+    CHECK(tooMany.message.find("51") != std::string::npos);
 
     // A bad quantity is refused as well.
     CHECK(fixture.resolver.lookupForQuantity("428647", 0.0).status ==
@@ -106,6 +106,12 @@ TEST_CASE(resolver_checks_quantity_against_stock)
               .lookupForQuantity("428647",
                                  std::numeric_limits<double>::quiet_NaN())
               .status == ProductResolver::Status::InsufficientStock);
+
+    // Count products are whole units; say so instead of "not enough stock".
+    const ProductResolver::Result fractionalCount =
+        fixture.resolver.lookupForQuantity("428647", 1.5);
+    CHECK(fractionalCount.status == ProductResolver::Status::InsufficientStock);
+    CHECK(fractionalCount.message.find("whole number") != std::string::npos);
 
     // Weight products accept fractions.
     CHECK(fixture.resolver.lookupForQuantity("579158", 0.5).found());

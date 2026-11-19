@@ -5,6 +5,7 @@
 #include "ProductFormatter.h"
 
 #include <cctype>
+#include <cmath>
 
 namespace {
 
@@ -91,6 +92,17 @@ ProductResolver::Result ProductResolver::lookupForQuantity(
     {
         result.status = Status::InsufficientStock;
         result.message = "Quantity must be greater than 0.";
+        return result;
+    }
+
+    // Count products are sold in whole units. Say so instead of reporting a
+    // misleading stock shortage.
+    if (result.product->unit() == MeasurementUnit::Count &&
+        std::floor(quantity) != quantity)
+    {
+        result.status = Status::InsufficientStock;
+        result.message = "Quantity must be a whole number for " +
+                         result.product->acronym() + ".";
         return result;
     }
 
