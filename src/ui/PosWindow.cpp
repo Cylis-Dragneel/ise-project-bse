@@ -135,6 +135,10 @@ PosWindow::PosWindow(QWidget *parent)
             border: 1px solid #d1d5db;
             border-radius: 6px;
         }
+        QWidget#PosPage QPushButton:disabled {
+            background-color: #9ca3af;
+            color: #f3f4f6;
+        }
     )");
 }
 
@@ -212,8 +216,17 @@ QWidget *PosWindow::createPosPage()
 
     cameraPreview_ = new QVideoWidget(page);
     cameraPreview_->setMinimumSize(360, 260);
-    cameraPreview_->setStyleSheet("background: #111; border-radius: 8px;");
+    cameraPreview_->hide();
     left->addWidget(cameraPreview_);
+
+    cameraPlaceholder_ = new QLabel(
+        "Camera off\n\nUse Start Camera or enter a barcode.", page);
+    cameraPlaceholder_->setMinimumSize(360, 260);
+    cameraPlaceholder_->setAlignment(Qt::AlignCenter);
+    cameraPlaceholder_->setStyleSheet(
+        "background: #111827; color: #d1d5db; border-radius: 8px;"
+        "font-size: 14px; padding: 12px;");
+    left->addWidget(cameraPlaceholder_);
 
     QHBoxLayout *cameraButtons = new QHBoxLayout();
     cameraButton_ = new QPushButton("Start Camera", page);
@@ -233,8 +246,8 @@ QWidget *PosWindow::createPosPage()
         QRegularExpression("[1-9][0-9]{0,5}"), barcodeInput_));
 
     quantityInput_ = new QDoubleSpinBox(scanBox);
-    quantityInput_->setRange(0.001, 1000000.0);
-    quantityInput_->setDecimals(3);
+    quantityInput_->setRange(1.0, 1000000.0);
+    quantityInput_->setDecimals(0);
     quantityInput_->setSingleStep(1.0);
     quantityInput_->setValue(1.0);
     quantityInput_->setPrefix("Qty ");
@@ -247,8 +260,8 @@ QWidget *PosWindow::createPosPage()
 
     QHBoxLayout *cartButtons = new QHBoxLayout();
     selectedQuantityInput_ = new QDoubleSpinBox(page);
-    selectedQuantityInput_->setRange(0.001, 1000000.0);
-    selectedQuantityInput_->setDecimals(3);
+    selectedQuantityInput_->setRange(1.0, 1000000.0);
+    selectedQuantityInput_->setDecimals(0);
     selectedQuantityInput_->setSingleStep(1.0);
     selectedQuantityInput_->setValue(1.0);
     selectedQuantityInput_->setPrefix("Qty ");
@@ -356,6 +369,7 @@ QWidget *PosWindow::createPosPage()
             this, [this](const QString &message) {
                 scanner_->stop();
                 cameraPreview_->hide();
+                cameraPlaceholder_->show();
                 stopCameraButton_->setEnabled(false);
                 cameraButton_->setText("Start Camera");
                 setStatus(message);
@@ -462,9 +476,12 @@ void PosWindow::startOrArmCamera()
         return;
     }
 
+    cameraPlaceholder_->hide();
     cameraPreview_->show();
     if (!cameraHandler_->startCamera())
     {
+        cameraPreview_->hide();
+        cameraPlaceholder_->show();
         cameraButton_->setText("Start Camera");
         setStatus("No camera available. Use the barcode field instead.");
         return;
@@ -480,6 +497,8 @@ void PosWindow::stopCameraInternal()
 {
     scanner_->stop();
     cameraHandler_->stopCamera();
+    cameraPreview_->hide();
+    cameraPlaceholder_->show();
     cameraButton_->setText("Start Camera");
     stopCameraButton_->setEnabled(false);
     setStatus("Camera stopped.");
@@ -647,6 +666,15 @@ void PosWindow::updateCart()
     }
 
     billButton_->setEnabled(!cart_.empty());
+
+    if (cart_.empty())
+    {
+        // Do not leave the last selected row's quantity on screen.
+        selectedQuantityInput_->setDecimals(0);
+        selectedQuantityInput_->setRange(1.0, 1000000.0);
+        selectedQuantityInput_->setValue(1.0);
+    }
+
     updateTotals();
 }
 

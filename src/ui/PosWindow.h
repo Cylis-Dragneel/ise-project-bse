@@ -122,6 +122,7 @@ private:
     QTableWidget *recentTable_ = nullptr;
 
     QVideoWidget *cameraPreview_ = nullptr;
+    QLabel *cameraPlaceholder_ = nullptr;
     CameraHandler *cameraHandler_ = nullptr;
     BarcodeScannerService *scanner_ = nullptr;
     QPushButton *cameraButton_ = nullptr;
