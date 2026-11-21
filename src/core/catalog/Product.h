@@ -6,7 +6,7 @@
 
 enum class MeasurementUnit { Count, Weight };
 
-std::string toString(MeasurementUnit unit);
+std::string measurementUnitToString(MeasurementUnit unit);
 // Case-insensitive: "count" / "weight". Throws std::invalid_argument otherwise.
 MeasurementUnit measurementUnitFromString(const std::string& text);
 

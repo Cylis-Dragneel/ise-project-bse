@@ -74,8 +74,14 @@ vector<string> ProductRecordCodec::splitRecords(const string& content)
     return records;
 }
 
-Product ProductRecordCodec::parse(const string& record)
+Product ProductRecordCodec::parse(const string& recordIn)
 {
+    // Accept the '#' marker as well, so format() output can be parsed directly.
+    string record = recordIn;
+    const size_t lastNonSpace = record.find_last_not_of(" \t\r\n");
+    if (lastNonSpace != string::npos && record[lastNonSpace] == '#')
+        record.erase(lastNonSpace);
+
     vector<string> t;
     std::istringstream in(record);
     string token;
@@ -117,7 +123,7 @@ string ProductRecordCodec::format(const Product& p)
         if (name[i] == ' ') name[i] = '_';
 
     return std::to_string(p.id()) + " " + p.barcode() + " " + p.acronym() + " " +
-        name + " " + toString(p.unit()) + " " +
+        name + " " + measurementUnitToString(p.unit()) + " " +
         NumberFormat::general(p.unitPrice()) + " " +
         NumberFormat::general(p.taxAmount()) + " " +
         NumberFormat::general(p.discountPerUnit()) + " " +

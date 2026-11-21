@@ -1,4 +1,5 @@
 #include "ProductCatalog.h"
+#include <cmath>
 #include <stdexcept>
 
 using std::string;
@@ -66,6 +67,10 @@ void ProductCatalog::deductStock(const vector<StockRequest>& requests)
     // 1) validate everything, change nothing
     for (auto it = totals.begin(); it != totals.end(); ++it)
     {
+        if (!std::isfinite(it->second) || it->second <= 0)
+            throw std::invalid_argument(
+                "quantity must be a positive number for barcode " + it->first);
+
         const Product* p = findByBarcode(it->first);
         if (p == nullptr)
             throw std::invalid_argument("unknown product barcode: " + it->first);

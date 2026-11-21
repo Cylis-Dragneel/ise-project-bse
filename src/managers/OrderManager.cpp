@@ -1,176 +1,535 @@
 #include "OrderManager.h"
-#include <fstream>
-#include <ctime>
-#include <cstdlib>
+
+#include <cerrno>
+#include <climits>
 #include <cmath>
+#include <cstddef>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+#include <string>
+#include <vector>
 
-using namespace std;
+namespace {
 
-static string sanitize(string s) {
-    if (s.empty()) return "-";
-    for (size_t i = 0; i < s.size(); i++)
-        if (s[i] == ' ' || s[i] == '\t' || s[i] == '#') s[i] = '_';
-    return s;
-}
-
-static string desanitize(string s) {
-    if (s == "-") return "";
-    for (size_t i = 0; i < s.size(); i++)
-        if (s[i] == '_') s[i] = ' ';
-    return s;
-}
-
-static vector<string> split(const string& line) {
-    vector<string> tokens;
-    size_t start = 0;
-    while (start < line.size()) {
-        size_t pos = line.find(' ', start);
-        if (pos == string::npos) pos = line.size();
-        if (pos > start) tokens.push_back(line.substr(start, pos - start));
-        start = pos + 1;
+std::string sanitize(std::string text)
+{
+    if (text.empty())
+    {
+        return "-";
     }
+
+    for (char &character : text)
+    {
+        const unsigned char value = static_cast<unsigned char>(character);
+        if (character == ' ' || character == '\t' || character == '#' ||
+            value < 0x20 || value == 0x7F)
+        {
+            character = '_';
+        }
+    }
+
+    return text;
+}
+
+std::string desanitize(std::string text)
+{
+    if (text == "-")
+    {
+        return "";
+    }
+
+    for (char &character : text)
+    {
+        if (character == '_')
+        {
+            character = ' ';
+        }
+    }
+
+    return text;
+}
+
+std::vector<std::string> split(const std::string &line)
+{
+    std::vector<std::string> tokens;
+    std::size_t position = 0;
+
+    while (position < line.size())
+    {
+        while (position < line.size() &&
+               (line[position] == ' ' || line[position] == '\t' ||
+                line[position] == '\r'))
+        {
+            ++position;
+        }
+
+        const std::size_t start = position;
+        while (position < line.size() && line[position] != ' ' &&
+               line[position] != '\t' && line[position] != '\r')
+        {
+            ++position;
+        }
+
+        if (position > start)
+        {
+            tokens.push_back(line.substr(start, position - start));
+        }
+    }
+
     return tokens;
 }
 
-static bool isDigits(const string& s) {
-    if (s.empty()) return false;
-    for (size_t i = 0; i < s.size(); i++)
-        if (s[i] < '0' || s[i] > '9') return false;
+bool isDigits(const std::string &text)
+{
+    if (text.empty())
+    {
+        return false;
+    }
+
+    for (char character : text)
+    {
+        if (character < '0' || character > '9')
+        {
+            return false;
+        }
+    }
+
     return true;
 }
 
-static bool validDate(const string& d) {
-    return d.size() == 10 && d[4] == '-' && d[7] == '-' &&
-           isDigits(d.substr(0, 4)) && isDigits(d.substr(5, 2)) && isDigits(d.substr(8, 2));
+bool isBarcode(const std::string &barcode)
+{
+    // Product barcodes are 6-digit Code 39 values in 100000-999999.
+    return barcode.size() == 6 && isDigits(barcode) && barcode[0] != '0';
 }
 
-static string mmdd(const string& date) {
+bool isLeapYear(int year)
+{
+    return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+}
+
+int daysInMonth(int month, int year)
+{
+    static const int days[] = {31, 28, 31, 30, 31, 30,
+                               31, 31, 30, 31, 30, 31};
+    if (month == 2 && isLeapYear(year))
+    {
+        return 29;
+    }
+    return days[month - 1];
+}
+
+bool validDate(const std::string &date)
+{
+    if (date.size() != 10 || date[4] != '-' || date[7] != '-' ||
+        !isDigits(date.substr(0, 4)) || !isDigits(date.substr(5, 2)) ||
+        !isDigits(date.substr(8, 2)))
+    {
+        return false;
+    }
+
+    const int year = std::atoi(date.substr(0, 4).c_str());
+    const int month = std::atoi(date.substr(5, 2).c_str());
+    const int day = std::atoi(date.substr(8, 2).c_str());
+
+    if (month < 1 || month > 12 || day < 1)
+    {
+        return false;
+    }
+
+    return day <= daysInMonth(month, year);
+}
+
+bool validTime(const std::string &time)
+{
+    if (time.size() != 8 || time[2] != ':' || time[5] != ':' ||
+        !isDigits(time.substr(0, 2)) || !isDigits(time.substr(3, 2)) ||
+        !isDigits(time.substr(6, 2)))
+    {
+        return false;
+    }
+
+    const int hour = std::atoi(time.substr(0, 2).c_str());
+    const int minute = std::atoi(time.substr(3, 2).c_str());
+    const int second = std::atoi(time.substr(6, 2).c_str());
+
+    return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 &&
+           second >= 0 && second <= 59;
+}
+
+std::string mmdd(const std::string &date)
+{
     return date.substr(5, 2) + date.substr(8, 2);
 }
 
-string OrderManager::getCurrentDate() {
-    time_t now = time(0);
-    char buf[16];
-    strftime(buf, sizeof(buf), "%Y-%m-%d", localtime(&now));
-    return buf;
+bool isValidStatus(const std::string &status)
+{
+    return status == "in-progress" || status == "on-hold" ||
+           status == "paid" || status == "archived";
 }
 
-string OrderManager::getCurrentTime() {
-    time_t now = time(0);
-    char buf[16];
-    strftime(buf, sizeof(buf), "%H:%M:%S", localtime(&now));
-    return buf;
+bool isValidPaymentMode(const std::string &mode)
+{
+    return mode == "cash" || mode == "card" || mode == "wallet";
 }
 
-string OrderManager::generateOrderId(const string& dateIn) {
-    string date = dateIn.empty() ? getCurrentDate() : dateIn;
-    if (!validDate(date)) return "";
-
-    int maxSeq = 0;
-    ifstream file("Order.txt");
-    string line;
-    while (getline(file, line)) {
-        vector<string> t = split(line);
-        if (t.size() < 2) continue;
-        if (t[1] != date) continue;                       // date field only
-        if (t[0].size() != 8 || !isDigits(t[0])) continue;
-        int seq = atoi(t[0].substr(0, 4).c_str());
-        if (seq > maxSeq) maxSeq = seq;
+std::string formatNumber(double value)
+{
+    if (value == 0.0)
+    {
+        return "0";
     }
 
-    if (maxSeq >= 9999) return "";
-    string seq = to_string(maxSeq + 1);
-    while (seq.size() < 4) seq = "0" + seq;
-    return seq + mmdd(date);
+    std::ostringstream output;
+    output << std::fixed << std::setprecision(6) << value;
+    std::string text = output.str();
+
+    const std::size_t dot = text.find('.');
+    if (dot != std::string::npos)
+    {
+        while (!text.empty() && text.back() == '0')
+        {
+            text.pop_back();
+        }
+        if (!text.empty() && text.back() == '.')
+        {
+            text.pop_back();
+        }
+    }
+
+    return text;
 }
 
-bool OrderManager::validateOrder(const Order& o, const vector<OrderDetail>& details) {
-    if (o.orderId.size() != 8 || !isDigits(o.orderId)) return false;
-    if (!validDate(o.date) || o.orderId.substr(4) != mmdd(o.date)) return false;
-    if (o.status != "Pending" && o.status != "Completed" && o.status != "Cancelled") return false;
-    if (o.paymentMode != "Cash" && o.paymentMode != "Card" && o.paymentMode != "Online") return false;
-    if (o.totalAmount < 0 || o.paymentAmount < 0) return false;
-    if (details.empty()) return false;
-
-    for (size_t i = 0; i < details.size(); i++) {
-        const OrderDetail& d = details[i];
-        if (d.orderId != o.orderId) return false;
-        if (d.productId <= 0 || d.quantity <= 0 || d.unitPrice < 0) return false;
-        if (fabs(d.subtotal - d.quantity * d.unitPrice) > 0.01) return false;
+bool parseDouble(const std::string &text, double &value)
+{
+    if (text.empty() || text.find_first_of("eE") != std::string::npos)
+    {
+        return false;
     }
+
+    char *end = nullptr;
+    errno = 0;
+    const double parsed = std::strtod(text.c_str(), &end);
+    if (end == text.c_str() || *end != '\0' || errno == ERANGE ||
+        !std::isfinite(parsed))
+    {
+        return false;
+    }
+
+    value = parsed;
     return true;
 }
 
-bool OrderManager::saveOrderTransaction(const Order& o, const vector<OrderDetail>& details) {
-    if (!validateOrder(o, details)) return false;
-
-    ofstream detailFile("OrderDetail.txt", ios::app);
-    ofstream orderFile("Order.txt", ios::app);
-    if (!detailFile.is_open() || !orderFile.is_open()) return false;
-
-    for (size_t i = 0; i < details.size(); i++) {
-        detailFile << details[i].orderId << " " << details[i].productId << " "
-                   << to_string(details[i].quantity) << " " << to_string(details[i].unitPrice) << " "
-                   << to_string(details[i].subtotal) << " #\n";
+bool parseInt(const std::string &text, int &value)
+{
+    if (text.empty())
+    {
+        return false;
     }
 
-    orderFile << o.orderId << " " << o.date << " " << o.time << " "
-              << sanitize(o.customerName) << " " << sanitize(o.contact) << " "
-              << sanitize(o.merchant) << " " << to_string(o.totalAmount) << " "
-              << to_string(o.paymentAmount) << " " << o.status << " "
-              << o.paymentMode << " #\n";
+    char *end = nullptr;
+    errno = 0;
+    const long parsed = std::strtol(text.c_str(), &end, 10);
+    if (end == text.c_str() || *end != '\0' || errno == ERANGE ||
+        parsed < INT_MIN || parsed > INT_MAX)
+    {
+        return false;
+    }
+
+    value = static_cast<int>(parsed);
+    return true;
+}
+
+bool orderIdExists(const std::string &orderId, const std::string &path)
+{
+    std::ifstream file(path);
+    std::string line;
+
+    while (std::getline(file, line))
+    {
+        const std::vector<std::string> tokens = split(line);
+        if (!tokens.empty() && tokens[0] == orderId)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+} // namespace
+
+std::string OrderManager::getCurrentDate()
+{
+    const std::time_t now = std::time(nullptr);
+    char buffer[16];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", std::localtime(&now));
+    return buffer;
+}
+
+std::string OrderManager::getCurrentTime()
+{
+    const std::time_t now = std::time(nullptr);
+    char buffer[16];
+    std::strftime(buffer, sizeof(buffer), "%H:%M:%S", std::localtime(&now));
+    return buffer;
+}
+
+std::string OrderManager::generateOrderId(const std::string &dateIn,
+                                          const std::string &orderFilePath)
+{
+    const std::string date = dateIn.empty() ? getCurrentDate() : dateIn;
+    if (!validDate(date))
+    {
+        return "";
+    }
+
+    int maxSequence = 0;
+    std::ifstream file(orderFilePath);
+    std::string line;
+
+    while (std::getline(file, line))
+    {
+        const std::vector<std::string> tokens = split(line);
+        if (tokens.size() < 2)
+        {
+            continue;
+        }
+
+        // Use the date field, not a substring match on the whole line.
+        if (tokens[1] != date)
+        {
+            continue;
+        }
+
+        if (tokens[0].size() != 8 || !isDigits(tokens[0]))
+        {
+            continue;
+        }
+
+        const int sequence = std::atoi(tokens[0].substr(0, 4).c_str());
+        if (sequence > maxSequence)
+        {
+            maxSequence = sequence;
+        }
+    }
+
+    if (maxSequence >= 9999)
+    {
+        return "";
+    }
+
+    std::string sequence = std::to_string(maxSequence + 1);
+    while (sequence.size() < 4)
+    {
+        sequence = "0" + sequence;
+    }
+
+    return sequence + mmdd(date);
+}
+
+bool OrderManager::validateOrder(const Order &order,
+                                 const std::vector<OrderDetail> &details)
+{
+    if (order.orderId.size() != 8 || !isDigits(order.orderId) ||
+        order.orderId.substr(0, 4) == "0000")
+    {
+        return false;
+    }
+
+    if (!validDate(order.date) || !validTime(order.time) ||
+        order.orderId.substr(4) != mmdd(order.date))
+    {
+        return false;
+    }
+
+    if (!isValidStatus(order.status) ||
+        !isValidPaymentMode(order.paymentMode))
+    {
+        return false;
+    }
+
+    if (!std::isfinite(order.paymentAmount) || order.paymentAmount < 0)
+    {
+        return false;
+    }
+
+    if (details.empty())
+    {
+        return false;
+    }
+
+    for (const OrderDetail &detail : details)
+    {
+        if (detail.orderId != order.orderId || detail.productId <= 0 ||
+            !isBarcode(detail.productBarcode) ||
+            !std::isfinite(detail.quantity) || detail.quantity <= 0)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool OrderManager::saveOrderTransaction(
+    const Order &order,
+    const std::vector<OrderDetail> &details,
+    const std::string &orderFilePath,
+    const std::string &detailFilePath)
+{
+    if (!validateOrder(order, details))
+    {
+        return false;
+    }
+
+    // A caller-supplied id must not create a second order record.
+    if (orderIdExists(order.orderId, orderFilePath))
+    {
+        return false;
+    }
+
+    // Open both files before writing so an invalid path cannot leave a
+    // partial order behind.
+    std::ofstream detailFile(detailFilePath, std::ios::app);
+    std::ofstream orderFile(orderFilePath, std::ios::app);
+    if (!detailFile.is_open() || !orderFile.is_open())
+    {
+        return false;
+    }
+
+    for (const OrderDetail &detail : details)
+    {
+        detailFile << detail.orderId << ' ' << detail.productId << ' '
+                   << detail.productBarcode << ' '
+                   << formatNumber(detail.quantity) << " #\n";
+    }
+
+    if (!detailFile.good())
+    {
+        return false;
+    }
+
+    orderFile << order.orderId << ' ' << order.date << ' ' << order.time << ' '
+              << sanitize(order.customerName) << ' '
+              << sanitize(order.contact) << ' ' << order.status << ' '
+              << formatNumber(order.paymentAmount) << ' '
+              << order.paymentMode << ' ' << sanitize(order.merchant)
+              << " #\n";
+
+    detailFile.flush();
+    orderFile.flush();
 
     return detailFile.good() && orderFile.good();
 }
 
-vector<Order> OrderManager::loadOrders() {
-    vector<Order> orders;
-    ifstream file("Order.txt");
-    string line;
-    while (getline(file, line)) {
-        vector<string> t = split(line);
-        if (t.size() != 11 || t[10] != "#") continue;
-        Order o;
-        o.orderId = t[0];
-        o.date = t[1];
-        o.time = t[2];
-        o.customerName = desanitize(t[3]);
-        o.contact = desanitize(t[4]);
-        o.merchant = desanitize(t[5]);
-        o.totalAmount = atof(t[6].c_str());
-        o.paymentAmount = atof(t[7].c_str());
-        o.status = t[8];
-        o.paymentMode = t[9];
-        orders.push_back(o);
+std::vector<Order> OrderManager::loadOrders(const std::string &orderFilePath)
+{
+    std::vector<Order> orders;
+    std::ifstream file(orderFilePath);
+    std::string line;
+
+    while (std::getline(file, line))
+    {
+        const std::vector<std::string> tokens = split(line);
+        if (tokens.size() != 10 || tokens[9] != "#")
+        {
+            continue;
+        }
+
+        if (tokens[0].size() != 8 || !isDigits(tokens[0]) ||
+            tokens[0].substr(0, 4) == "0000")
+        {
+            continue;
+        }
+
+        if (!validDate(tokens[1]) || !validTime(tokens[2]) ||
+            tokens[0].substr(4) != mmdd(tokens[1]))
+        {
+            continue;
+        }
+
+        if (!isValidStatus(tokens[5]) || !isValidPaymentMode(tokens[7]))
+        {
+            continue;
+        }
+
+        double paymentAmount = 0.0;
+        if (!parseDouble(tokens[6], paymentAmount) || paymentAmount < 0)
+        {
+            continue;
+        }
+
+        Order order;
+        order.orderId = tokens[0];
+        order.date = tokens[1];
+        order.time = tokens[2];
+        order.customerName = desanitize(tokens[3]);
+        order.contact = desanitize(tokens[4]);
+        order.status = tokens[5];
+        order.paymentAmount = paymentAmount;
+        order.paymentMode = tokens[7];
+        order.merchant = desanitize(tokens[8]);
+        orders.push_back(order);
     }
+
     return orders;
 }
 
-vector<OrderDetail> OrderManager::loadOrderDetails(const string& orderId) {
-    vector<OrderDetail> details;
-    ifstream file("OrderDetail.txt");
-    string line;
-    while (getline(file, line)) {
-        vector<string> t = split(line);
-        if (t.size() != 6 || t[5] != "#" || t[0] != orderId) continue;
-        OrderDetail d;
-        d.orderId = t[0];
-        d.productId = atoi(t[1].c_str());
-        d.quantity = atof(t[2].c_str());
-        d.unitPrice = atof(t[3].c_str());
-        d.subtotal = atof(t[4].c_str());
-        details.push_back(d);
+std::vector<OrderDetail> OrderManager::loadOrderDetails(
+    const std::string &orderId,
+    const std::string &detailFilePath)
+{
+    std::vector<OrderDetail> details;
+    std::ifstream file(detailFilePath);
+    std::string line;
+
+    while (std::getline(file, line))
+    {
+        const std::vector<std::string> tokens = split(line);
+        if (tokens.size() != 5 || tokens[4] != "#" ||
+            tokens[0] != orderId)
+        {
+            continue;
+        }
+
+        int productId = 0;
+        double quantity = 0.0;
+        if (!parseInt(tokens[1], productId) || productId <= 0 ||
+            !isBarcode(tokens[2]) ||
+            !parseDouble(tokens[3], quantity) || quantity <= 0)
+        {
+            continue;
+        }
+
+        OrderDetail detail;
+        detail.orderId = tokens[0];
+        detail.productId = productId;
+        detail.productBarcode = tokens[2];
+        detail.quantity = quantity;
+        details.push_back(detail);
     }
+
     return details;
 }
 
-bool OrderManager::findOrder(const string& orderId, Order& result) {
-    vector<Order> orders = loadOrders();
-    for (size_t i = 0; i < orders.size(); i++) {
-        if (orders[i].orderId == orderId) {
-            result = orders[i];
+bool OrderManager::findOrder(const std::string &orderId,
+                             Order &result,
+                             const std::string &orderFilePath)
+{
+    const std::vector<Order> orders = loadOrders(orderFilePath);
+
+    for (const Order &order : orders)
+    {
+        if (order.orderId == orderId)
+        {
+            result = order;
             return true;
         }
     }
+
     return false;
 }

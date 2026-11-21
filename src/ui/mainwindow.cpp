@@ -1,7 +1,10 @@
 #include "mainwindow.h"
 
+#include "PosWindow.h"
 #include "camera/CameraHandler.h"
+#include "scanning/BarcodeScannerService.h"
 
+#include <QTabWidget>
 #include <QWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -12,99 +15,24 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QImage>
-#include <QPainter>
 #include <QPixmap>
 #include <QStatusBar>
 #include <QRegularExpressionValidator>
 #include <QVideoWidget>
-#include <algorithm>
-#include <array>
-#include <cstddef>
 #include <exception>
 #include <string>
-#include <vector>
-
-namespace {
-
-// Otsu's method: picks the threshold that best separates the dark bars from
-// the light background. Camera frames are rarely evenly lit, so a fixed 128
-// is unreliable there.
-int otsuThreshold(const QImage &grayscale)
-{
-    std::array<std::size_t, 256> histogram{};
-    for (int y = 0; y < grayscale.height(); ++y)
-    {
-        const unsigned char *row = grayscale.constScanLine(y);
-        for (int x = 0; x < grayscale.width(); ++x)
-        {
-            ++histogram[row[x]];
-        }
-    }
-
-    const std::size_t total = static_cast<std::size_t>(grayscale.width()) *
-                              static_cast<std::size_t>(grayscale.height());
-    if (total == 0)
-    {
-        return 128;
-    }
-
-    double sum = 0.0;
-    for (int i = 0; i < 256; ++i)
-    {
-        sum += static_cast<double>(i) * static_cast<double>(histogram[i]);
-    }
-
-    double sumBackground = 0.0;
-    std::size_t weightBackground = 0;
-    double bestVariance = -1.0;
-    int bestThreshold = 128;
-
-    for (int t = 0; t < 256; ++t)
-    {
-        weightBackground += histogram[t];
-        if (weightBackground == 0)
-        {
-            continue;
-        }
-
-        const std::size_t weightForeground = total - weightBackground;
-        if (weightForeground == 0)
-        {
-            break;
-        }
-
-        sumBackground += static_cast<double>(t) * static_cast<double>(histogram[t]);
-        const double meanBackground =
-            sumBackground / static_cast<double>(weightBackground);
-        const double meanForeground =
-            (sum - sumBackground) / static_cast<double>(weightForeground);
-        const double difference = meanBackground - meanForeground;
-        const double variance = static_cast<double>(weightBackground) *
-                                static_cast<double>(weightForeground) *
-                                difference * difference;
-
-        if (variance > bestVariance)
-        {
-            bestVariance = variance;
-            bestThreshold = t;
-        }
-    }
-
-    return bestThreshold;
-}
-
-} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setWindowTitle("Barcode Generator and Reader");
-    resize(1000, 650);
+    resize(1200, 800);
 
-    QWidget *central = new QWidget(this);
-    setCentralWidget(central);
+    QTabWidget *tabs = new QTabWidget(this);
+    setCentralWidget(tabs);
 
-    QVBoxLayout *mainLayout = new QVBoxLayout(central);
+    QWidget *barcodePage = new QWidget();
+    QVBoxLayout *mainLayout = new QVBoxLayout(barcodePage);
 
     QLabel *heading = new QLabel("Barcode Generator & Reader");
     heading->setAlignment(Qt::AlignCenter);
@@ -194,6 +122,42 @@ MainWindow::MainWindow(QWidget *parent)
                 statusBar()->showMessage(message);
             });
 
+    scannerService = new BarcodeScannerService(this);
+
+    connect(cameraHandler, &CameraHandler::frameReady,
+            scannerService, &BarcodeScannerService::processFrame);
+
+    connect(scannerService, &BarcodeScannerService::barcodeDetected,
+            this, [this](const std::string &barcode) {
+                decodedNumber->setText(
+                    QString("Decoded Number: %1")
+                        .arg(QString::fromStdString(barcode)));
+                statusBar()->showMessage("Barcode decoded from camera.");
+
+                // Freeze the scan loop after the first success. The camera
+                // preview stays open; the Stop button still decodes the last
+                // frame as a fallback.
+                scannerService->stop();
+
+                // TODO(integration): forward `barcode` to the POS order-entry
+                // or description screen once Person D's PosWindow is merged.
+                // ProductResolver (src/core/catalog) already turns the barcode
+                // into a product, a description and a user-facing error:
+                //   //#include "catalog/ProductResolver.h"
+                //   //#include "ui/poswindow.h"
+                //   //#include "managers/OrderManager.h"
+                //   // ProductResolver::Result result = resolver.lookup(barcode);
+                //   // posWindow->showProduct(result);
+                //   // OrderManager::saveOrderTransaction(order, details);
+                // Billing is ready in src/core/billing: after the order is
+                // saved, BillingService::generateBill(order) writes Bill.txt
+                // and returns the totals for the bill screen.
+                //   //#include "billing/BillingService.h"
+                //   //#include "billing/FileBillRepository.h"
+                //   // BillingService billing(catalog, std::make_shared<FileBillRepository>("Bill.txt"));
+                //   // Bill bill = billing.generateBill(order);
+            });
+
     // Button styling
     setStyleSheet(
         "QPushButton {"
@@ -229,6 +193,27 @@ MainWindow::MainWindow(QWidget *parent)
     connect(stopCameraButton, &QPushButton::clicked,
             this, &MainWindow::stopCamera);
 
+    tabs->addTab(barcodePage, "Barcode Tool");
+
+    posWindow = new PosWindow(this);
+    tabs->addTab(posWindow, "Point of Sale");
+
+    // Only one tab may own the camera at a time.
+    connect(tabs, &QTabWidget::currentChanged, this,
+            [this](int index) {
+                if (index == 0)
+                {
+                    if (posWindow != nullptr)
+                    {
+                        posWindow->stopCamera();
+                    }
+                }
+                else
+                {
+                    stopCameraInternal(false);
+                }
+            });
+
     statusBar()->showMessage("Application ready");
 }
 
@@ -262,6 +247,7 @@ void MainWindow::generateBarcode()
         // Pass the binary pattern to your custom barcode renderer widget
         barcodeRendererWidget->setPattern(binaryPattern);
 
+        lastGeneratedNumber = QString::number(numberValue);
         saveButton->setEnabled(true); // Enable saving once generated
         statusBar()->showMessage("Barcode generated successfully!");
     }
@@ -284,11 +270,17 @@ void MainWindow::saveBarcode()
         return;
     }
 
+    // Default the filename to the number that produced the barcode, so saved
+    // images match the paths in Product.txt (barcodes/<number>.png).
+    const QString defaultName =
+        lastGeneratedNumber.isEmpty() ? QStringLiteral("barcode.png")
+                                      : lastGeneratedNumber + ".png";
+
     QString selectedFilter;
     QString fileName = QFileDialog::getSaveFileName(
         this,
         "Save Barcode Image",
-        "barcode.png",
+        defaultName,
         "PNG image (*.png);;JPEG image (*.jpg *.jpeg);;Bitmap image (*.bmp)",
         &selectedFilter);
 
@@ -366,6 +358,7 @@ void MainWindow::clearGenerator()
 {
     barcodeInput->clear();
     barcodeRendererWidget->setPattern(""); // Clear the rendered barcode
+    lastGeneratedNumber.clear();
     saveButton->setEnabled(false);
 
     statusBar()->showMessage("Generator cleared.");
@@ -389,6 +382,8 @@ void MainWindow::startCamera()
         return;
     }
 
+    scannerService->start();
+
     readerPreview->hide();
     cameraPreview->show();
     startCameraButton->setEnabled(false);
@@ -404,6 +399,8 @@ void MainWindow::stopCamera()
 
 void MainWindow::stopCameraInternal(bool decodeFrame)
 {
+    scannerService->stop();
+
     const QImage frame = cameraHandler->lastFrameImage();
 
     cameraHandler->stopCamera();
@@ -445,60 +442,20 @@ void MainWindow::stopCameraInternal(bool decodeFrame)
 // Scans a frame or uploaded image and updates the decoded number.
 bool MainWindow::decodeImage(const QImage &image)
 {
-    // Composite onto white so transparent images do not turn into black
-    // pixels when converted to grayscale.
-    QImage opaque(image.size(), QImage::Format_RGB32);
-    opaque.fill(Qt::white);
-    QPainter painter(&opaque);
-    painter.drawImage(0, 0, image);
-    painter.end();
+    const std::string barcode = scannerService->decode(image);
 
-    const QImage grayscale = opaque.convertToFormat(QImage::Format_Grayscale8);
-
-    // Try the camera's own contrast first, then the fixed threshold that
-    // clean, evenly lit uploads use.
-    const int adaptive = std::clamp(otsuThreshold(grayscale), 1, 254);
-
-    std::vector<std::string> candidates = imageScanner.scan(
-        grayscale.constBits(),
-        grayscale.width(),
-        grayscale.height(),
-        grayscale.bytesPerLine(),
-        static_cast<unsigned char>(adaptive));
-
-    if (adaptive != 128)
+    if (barcode.empty())
     {
-        const std::vector<std::string> fallback = imageScanner.scan(
-            grayscale.constBits(),
-            grayscale.width(),
-            grayscale.height(),
-            grayscale.bytesPerLine());
-
-        for (const std::string &pattern : fallback)
-        {
-            if (std::find(candidates.begin(), candidates.end(), pattern) ==
-                candidates.end())
-            {
-                candidates.push_back(pattern);
-            }
-        }
+        decodedNumber->setText("Decoded Number: Not available");
+        return false;
     }
 
-    for (const std::string &pattern : candidates)
-    {
-        try
-        {
-            const int number = decoder.decode(pattern);
+    decodedNumber->setText(
+        QString("Decoded Number: %1").arg(QString::fromStdString(barcode)));
 
-            decodedNumber->setText(QString("Decoded Number: %1").arg(number));
-            return true;
-        }
-        catch (const std::exception &)
-        {
-            // This scan line did not contain a decodable barcode. Try the next.
-        }
-    }
-
-    decodedNumber->setText("Decoded Number: Not available");
-    return false;
+    // TODO(integration): forward `barcode` to the POS order-entry or
+    // description screen once Person D's PosWindow is merged. ProductResolver
+    // (src/core/catalog) already produces the product, its description and the
+    // user-facing error message; the UI only has to display them.
+    return true;
 }

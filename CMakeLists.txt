@@ -63,6 +63,9 @@ if(QR_BUILD_TESTS)
         add_executable(qr_tests ${TEST_SRC})
         target_link_libraries(qr_tests PRIVATE qrcore)
         target_include_directories(qr_tests PRIVATE tests)
+        # Committed fixtures live next to the sources, not in the build tree.
+        target_compile_definitions(qr_tests PRIVATE
+            QR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
         qr_warnings(qr_tests)
 
         add_test(NAME qr_tests COMMAND qr_tests)
@@ -85,9 +88,11 @@ if(QR_BUILD_APP)
         src/ui/*.h
         src/camera/*.h
         src/renderer/*.h
+        src/scanning/*.h
         src/ui/*.cpp
         src/camera/*.cpp
         src/renderer/*.cpp
+        src/scanning/*.cpp
         src/main.cpp
     )
 
@@ -110,6 +115,14 @@ if(QR_BUILD_APP)
         if(TARGET qrcore)
             target_link_libraries(qrapp PRIVATE qrcore)
         endif()
+
+        # Keep the sample data next to the executable so Product.txt and its
+        # barcode images are found regardless of the working directory.
+        add_custom_command(TARGET qrapp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/data"
+                "$<TARGET_FILE_DIR:qrapp>/data"
+        )
 
         qr_warnings(qrapp)
 

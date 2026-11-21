@@ -8,7 +8,7 @@ std::string ProductFormatter::describe(const Product& p)
     return "Product ID    : " + std::to_string(p.id()) + "\n" +
         "Barcode       : " + p.barcode() + "\n" +
         "Name          : " + p.name() + " (" + p.acronym() + ")\n" +
-        "Sold by       : " + toString(p.unit()) + "\n" +
+        "Sold by       : " + measurementUnitToString(p.unit()) + "\n" +
         "Unit price    : PKR " + NumberFormat::money(p.unitPrice()) + " " + unitLabel + "\n" +
         "Tax           : PKR " + NumberFormat::money(p.taxAmount()) + "\n" +
         "Discount      : PKR " + NumberFormat::money(p.discountPerUnit()) + " per unit\n" +

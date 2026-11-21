@@ -37,6 +37,11 @@ void FileProductRepository::recoverInterruptedSave()
     {
         if (!renameFile(backupPath(), filePath_))
             throw std::runtime_error("cannot restore " + filePath_ + " from backup " + backupPath());
+
+        // The temp file belongs to the interrupted save; the restored backup is
+        // the authoritative content now.
+        if (fileExists(tempPath()))
+            removeFile(tempPath());
     }
 }
 
