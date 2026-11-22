@@ -11,6 +11,8 @@
 #include "catalog/FileProductRepository.h"
 #include "catalog/ProductCatalog.h"
 #include "catalog/ProductResolver.h"
+#include "seasons/FileSeasonRepository.h"
+#include "seasons/SeasonService.h"
 #include "Order.h"
 
 class QComboBox;
@@ -91,10 +93,13 @@ private:
     std::string orderPath_;
     std::string detailPath_;
     std::string billPath_;
+    std::string billDetailPath_;
+    std::string seasonPath_;
     std::string catalogError_;
 
     ProductCatalog catalog_;
     ProductResolver resolver_;
+    SeasonService seasons_;
     BillingService billing_;
 
     std::vector<CartLine> cart_;

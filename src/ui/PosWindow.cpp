@@ -2,11 +2,13 @@
 
 #include "ProductDescriptionDialog.h"
 #include "billing/BillCalculator.h"
+#include "billing/FileBillDetailRepository.h"
 #include "billing/FileBillRepository.h"
 #include "camera/CameraHandler.h"
 #include "catalog/NumberFormat.h"
 #include "managers/OrderManager.h"
 #include "scanning/BarcodeScannerService.h"
+#include "util/DateUtils.h"
 
 #include <QAbstractItemView>
 #include <QComboBox>
@@ -61,6 +63,25 @@ std::string defaultProductPath()
     return local.toStdString();
 }
 
+// Seasons are optional: a missing Seasons.txt simply means "no seasons yet".
+std::string defaultSeasonPath()
+{
+    const QString local = "data/Seasons.txt";
+    if (QFileInfo::exists(local))
+    {
+        return local.toStdString();
+    }
+
+    const QString nextToApp =
+        QCoreApplication::applicationDirPath() + "/data/Seasons.txt";
+    if (QFileInfo::exists(nextToApp))
+    {
+        return nextToApp.toStdString();
+    }
+
+    return local.toStdString();
+}
+
 } // namespace
 
 PosWindow::PosWindow(QWidget *parent)
@@ -69,9 +90,14 @@ PosWindow::PosWindow(QWidget *parent)
       orderPath_("Order.txt"),
       detailPath_("OrderDetail.txt"),
       billPath_("Bill.txt"),
+      billDetailPath_("BillDetail.txt"),
+      seasonPath_(defaultSeasonPath()),
       catalog_(std::make_shared<FileProductRepository>(productPath_)),
       resolver_(catalog_),
-      billing_(catalog_, std::make_shared<FileBillRepository>(billPath_), detailPath_)
+      seasons_(std::make_shared<FileSeasonRepository>(seasonPath_)),
+      billing_(catalog_, std::make_shared<FileBillRepository>(billPath_),
+               std::make_shared<FileBillDetailRepository>(billDetailPath_),
+               &seasons_, detailPath_)
 {
     try
     {
@@ -80,6 +106,15 @@ PosWindow::PosWindow(QWidget *parent)
     catch (const std::exception &error)
     {
         catalogError_ = error.what();
+    }
+
+    try
+    {
+        seasons_.load();
+    }
+    catch (const std::exception &error)
+    {
+        setStatus(QString("Season data ignored: %1").arg(error.what()));
     }
 
     setObjectName("PosRoot");
@@ -644,8 +679,10 @@ void PosWindow::updateCart()
         BillLine billLine;
         billLine.quantity = line.quantity;
         billLine.unitPrice = line.product.unitPrice();
-        billLine.taxPerUnit = line.product.taxAmount();
-        billLine.discountPerUnit = line.product.discountPerUnit();
+        billLine.taxTotal = BillCalculator::roundMoney(
+            line.product.taxAmount() * line.quantity);
+        billLine.discountTotal = BillCalculator::roundMoney(
+            line.product.discountPerUnit() * line.quantity);
 
         const int row = static_cast<int>(i);
         cartTable_->insertRow(row);
@@ -687,10 +724,19 @@ void PosWindow::updateTotals()
         detail.productId = line.product.id();
         detail.productBarcode = line.product.barcode();
         detail.quantity = line.quantity;
-        bill.lines.push_back(
-            BillCalculator::makeLine("", "", detail, line.product, "paid"));
+        bill.lines.push_back(BillCalculator::makeLine("", detail, line.product));
     }
-    BillCalculator::calculate(bill);
+
+    double seasonalPercent = 0;
+    try
+    {
+        seasonalPercent = seasons_.activePercent(DateUtils::today());
+    }
+    catch (const std::exception &)
+    {
+        seasonalPercent = 0;
+    }
+    BillCalculator::calculate(bill, seasonalPercent);
 
     totalsLabel_->setText(
         QString("Subtotal %1 | Tax %2 | Discount %3 | Total %4")
@@ -825,8 +871,8 @@ void PosWindow::showBill(const Order &order, const Bill &bill,
     receipt += "Bill ID : " + QString::fromStdString(bill.billId) + "\n";
     receipt += "Order ID: " + QString::fromStdString(order.orderId) + "\n";
     receipt += "Customer: " + QString::fromStdString(order.customerName) + "\n";
-    receipt += "Date    : " + QString::fromStdString(order.date) + " " +
-               QString::fromStdString(order.time) + "\n";
+    receipt += "Date    : " + QString::fromStdString(bill.billDate) + " " +
+               QString::fromStdString(bill.billTime) + "\n";
     receipt += "----------------------------------------\n";
     receipt += "Item                 Qty    Price     Total\n";
     receipt += "----------------------------------------\n";
@@ -837,7 +883,7 @@ void PosWindow::showBill(const Order &order, const Bill &bill,
         const QString name =
             i < lines.size()
                 ? QString::fromStdString(lines[i].product.name())
-                : QString::fromStdString(line.productBarcode);
+                : QString::fromStdString(line.productAcronym);
 
         receipt += name.leftJustified(20, ' ');
         receipt += QString::fromStdString(NumberFormat::general(line.quantity))
@@ -854,8 +900,17 @@ void PosWindow::showBill(const Order &order, const Bill &bill,
                QString::fromStdString(NumberFormat::money(bill.totalTax)) + "\n";
     receipt += "Discount          : PKR " +
                QString::fromStdString(NumberFormat::money(bill.totalDiscount)) + "\n";
+    receipt += "Seasonal discount : PKR " +
+               QString::fromStdString(NumberFormat::money(bill.seasonalDiscount)) + "\n";
+    receipt += "Special discount  : " +
+               QString::fromStdString(NumberFormat::general(bill.specialDiscountPercent)) +
+               " %\n";
     receipt += "Total payable     : PKR " +
                QString::fromStdString(NumberFormat::money(bill.totalPayable)) + "\n";
+    receipt += "Amount received   : PKR " +
+               QString::fromStdString(NumberFormat::money(bill.amountReceived)) + "\n";
+    receipt += "Balance returned  : PKR " +
+               QString::fromStdString(NumberFormat::money(bill.balanceReturned)) + "\n";
     receipt += "Payment mode      : " + QString::fromStdString(order.paymentMode) + "\n";
     receipt += "Status            : " + QString::fromStdString(bill.paymentStatus) + "\n";
     receipt += "========================================\n";
