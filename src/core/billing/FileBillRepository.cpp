@@ -2,6 +2,7 @@
 
 #include "BillRecordCodec.h"
 
+#include <cstdio>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -9,18 +10,51 @@
 using std::string;
 using std::vector;
 
+namespace
+{
+    bool fileExists(const string& path)
+    {
+        std::ifstream f(path.c_str());
+        return f.good();
+    }
+}
+
 FileBillRepository::FileBillRepository(const string& filePath)
     : filePath_(filePath)
 {
 }
 
-vector<BillLine> FileBillRepository::loadAll()
+bool FileBillRepository::renameFile(const string& from, const string& to)
 {
+    return std::rename(from.c_str(), to.c_str()) == 0;
+}
+
+bool FileBillRepository::removeFile(const string& path)
+{
+    return std::remove(path.c_str()) == 0;
+}
+
+void FileBillRepository::recoverInterruptedSave()
+{
+    if (!fileExists(filePath_) && fileExists(backupPath()))
+    {
+        if (!renameFile(backupPath(), filePath_))
+            throw std::runtime_error("cannot restore " + filePath_ + " from backup " + backupPath());
+
+        if (fileExists(tempPath()))
+            removeFile(tempPath());
+    }
+}
+
+vector<Bill> FileBillRepository::loadAll()
+{
+    recoverInterruptedSave();
+
     std::ifstream input(filePath_.c_str());
     if (!input)
     {
         // Bill.txt does not exist until the first bill is generated.
-        return vector<BillLine>();
+        return vector<Bill>();
     }
 
     std::ostringstream buffer;
@@ -46,12 +80,12 @@ vector<BillLine> FileBillRepository::loadAll()
         throw std::invalid_argument(filePath_ + ": " + error.what());
     }
 
-    vector<BillLine> lines;
+    vector<Bill> bills;
     for (std::size_t i = 0; i < records.size(); ++i)
     {
         try
         {
-            lines.push_back(BillRecordCodec::parse(records[i]));
+            bills.push_back(BillRecordCodec::parse(records[i]));
         }
         catch (const std::invalid_argument& error)
         {
@@ -60,49 +94,61 @@ vector<BillLine> FileBillRepository::loadAll()
         }
     }
 
-    return lines;
+    return bills;
 }
 
-void FileBillRepository::append(const vector<BillLine>& lines)
+void FileBillRepository::saveAll(const vector<Bill>& bills)
 {
-    if (lines.empty())
+    recoverInterruptedSave();
+
+    const string temp = tempPath();
+    const string backup = backupPath();
+
+    bool written = false;
     {
-        return;
+        std::ofstream output(temp.c_str(), std::ios::trunc);
+        if (!output)
+            throw std::runtime_error("cannot create temporary file: " + temp);
+
+        for (const Bill& bill : bills)
+            output << BillRecordCodec::format(bill) << "\n";
+
+        output.close();
+        written = !output.fail();
+    }
+    if (!written)
+    {
+        removeFile(temp);
+        throw std::runtime_error("error while writing temporary file: " + temp +
+            " (the bill file was not changed)");
     }
 
-    // If the existing file does not end with a newline, start on a fresh line
-    // so the previous record is not glued to the first new one.
-    bool needsNewline = false;
+    const bool hadOriginal = fileExists(filePath_);
+    if (hadOriginal)
     {
-        std::ifstream input(filePath_.c_str(), std::ios::binary | std::ios::ate);
-        if (input && input.tellg() > 0)
+        removeFile(backup);
+        if (!renameFile(filePath_, backup))
         {
-            input.seekg(-1, std::ios::end);
-            char last = '\0';
-            input.get(last);
-            needsNewline = (last != '\n');
+            removeFile(temp);
+            throw std::runtime_error("cannot create backup " + backup +
+                " (the bill file was not changed)");
         }
     }
 
-    std::ofstream output(filePath_.c_str(), std::ios::app);
-    if (!output)
+    if (!renameFile(temp, filePath_))
     {
-        throw std::runtime_error("cannot open bill file for appending: " + filePath_);
+        string message = "cannot put the new bill file in place: " + filePath_;
+        if (hadOriginal)
+        {
+            if (renameFile(backup, filePath_))
+                message += " (the previous file was restored)";
+            else
+                message += " (the previous data is kept in " + backup + ")";
+        }
+        removeFile(temp);
+        throw std::runtime_error(message);
     }
 
-    if (needsNewline)
-    {
-        output << '\n';
-    }
-
-    for (const BillLine& line : lines)
-    {
-        output << BillRecordCodec::format(line) << "\n";
-    }
-
-    output.flush();
-    if (!output)
-    {
-        throw std::runtime_error("error while writing bill file: " + filePath_);
-    }
+    if (hadOriginal)
+        removeFile(backup);
 }

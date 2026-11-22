@@ -1,6 +1,7 @@
 #include "BillRecordCodec.h"
 
 #include "catalog/NumberFormat.h"
+#include "util/DateUtils.h"
 
 #include <cctype>
 #include <sstream>
@@ -12,7 +13,7 @@ using std::vector;
 
 namespace {
 
-const std::size_t FIELD_COUNT = 10;
+const std::size_t FIELD_COUNT = 14;
 
 bool isBlank(const string& text)
 {
@@ -47,7 +48,7 @@ bool isDigits(const string& text)
 
 // Plain decimal numbers only: digits with at most one '.', e.g. 280, 72.5.
 // No sign, no exponent (1e3), no hex, no "nan"/"inf".
-bool isPlainNumber(const string& text, bool allowDot)
+bool isPlainNumber(const string& text)
 {
     bool digit = false;
     bool dot = false;
@@ -58,7 +59,7 @@ bool isPlainNumber(const string& text, bool allowDot)
         {
             digit = true;
         }
-        else if (allowDot && character == '.' && !dot)
+        else if (character == '.' && !dot)
         {
             dot = true;
         }
@@ -71,35 +72,9 @@ bool isPlainNumber(const string& text, bool allowDot)
     return digit;
 }
 
-int parseProductId(const string& text)
-{
-    if (!isPlainNumber(text, false))
-    {
-        throw invalid_argument("invalid product id: '" + text + "'");
-    }
-
-    try
-    {
-        const int value = std::stoi(text);
-        if (value <= 0)
-        {
-            throw invalid_argument("product id must be positive: '" + text + "'");
-        }
-        return value;
-    }
-    catch (const std::invalid_argument&)
-    {
-        throw;
-    }
-    catch (const std::exception&)
-    {
-        throw invalid_argument("product id is too large: '" + text + "'");
-    }
-}
-
 double parseNonNegative(const string& text, const char* field)
 {
-    if (!isPlainNumber(text, true))
+    if (!isPlainNumber(text))
     {
         throw invalid_argument(string("invalid number for ") + field + ": '" + text + "'");
     }
@@ -113,20 +88,33 @@ double parseNonNegative(const string& text, const char* field)
     return value;
 }
 
-double parsePositive(const string& text, const char* field)
-{
-    const double value = parseNonNegative(text, field);
-    if (value <= 0)
-    {
-        throw invalid_argument(string(field) + " must be > 0: '" + text + "'");
-    }
-    return value;
-}
-
 bool isValidStatus(const string& status)
 {
     return status == "in-progress" || status == "on-hold" ||
            status == "paid" || status == "archived";
+}
+
+// The file stores a customer name without spaces; an empty name is "-".
+string parseCustomerName(const string& token)
+{
+    if (token == "-") return string();
+    string name = token;
+    for (std::size_t i = 0; i < name.size(); ++i)
+    {
+        if (name[i] == '_') name[i] = ' ';
+    }
+    return name;
+}
+
+string formatCustomerName(const string& name)
+{
+    if (name.empty()) return "-";
+    string token = name;
+    for (std::size_t i = 0; i < token.size(); ++i)
+    {
+        if (token[i] == ' ') token[i] = '_';
+    }
+    return token;
 }
 
 } // namespace
@@ -162,7 +150,7 @@ vector<string> BillRecordCodec::splitRecords(const string& content)
     return records;
 }
 
-BillLine BillRecordCodec::parse(const string& recordIn)
+Bill BillRecordCodec::parse(const string& recordIn)
 {
     string record = recordIn;
     const std::size_t lastNonSpace = record.find_last_not_of(" \t\r\n");
@@ -185,53 +173,72 @@ BillLine BillRecordCodec::parse(const string& recordIn)
                                " fields but found " + std::to_string(tokens.size()));
     }
 
-    BillLine line;
+    Bill bill;
 
     if (tokens[0].size() != 9 || !isDigits(tokens[0]))
     {
         throw invalid_argument("bill id must be 9 digits: '" + tokens[0] + "'");
     }
-    line.billId = tokens[0];
+    bill.billId = tokens[0];
 
-    if (tokens[1].size() != 8 || !isDigits(tokens[1]) ||
-        tokens[1].substr(0, 4) == "0000")
+    bill.customerName = parseCustomerName(tokens[1]);
+
+    if (tokens[2].size() != 8 || !isDigits(tokens[2]) ||
+        tokens[2].substr(0, 4) == "0000")
     {
-        throw invalid_argument("order id must be 8 digits: '" + tokens[1] + "'");
+        throw invalid_argument("order id must be 8 digits: '" + tokens[2] + "'");
     }
-    line.orderId = tokens[1];
+    bill.orderId = tokens[2];
 
-    line.productId = parseProductId(tokens[2]);
-
-    if (tokens[3].size() != 6 || !isDigits(tokens[3]) || tokens[3][0] == '0')
-    {
-        throw invalid_argument("product barcode must be 6 digits from 100000 to 999999: '" +
-                               tokens[3] + "'");
-    }
-    line.productBarcode = tokens[3];
-
-    line.quantity = parsePositive(tokens[4], "quantity");
-    line.unitPrice = parseNonNegative(tokens[5], "unit price");
-    line.taxPerUnit = parseNonNegative(tokens[6], "tax");
-    line.discountPerUnit = parseNonNegative(tokens[7], "discount");
-    line.lineTotal = parseNonNegative(tokens[8], "line total");
+    bill.totalNoTax = parseNonNegative(tokens[3], "total without tax");
+    bill.totalTax = parseNonNegative(tokens[4], "total tax");
+    bill.totalDiscount = parseNonNegative(tokens[5], "total discount");
+    bill.totalPayable = parseNonNegative(tokens[6], "total payable");
+    bill.amountReceived = parseNonNegative(tokens[7], "amount received");
+    bill.balanceReturned = parseNonNegative(tokens[8], "balance returned");
 
     if (!isValidStatus(tokens[9]))
     {
         throw invalid_argument("invalid payment status: '" + tokens[9] + "'");
     }
-    line.paymentStatus = tokens[9];
+    bill.paymentStatus = tokens[9];
 
-    return line;
+    bill.seasonalDiscount = parseNonNegative(tokens[10], "seasonal discount");
+
+    bill.specialDiscountPercent = parseNonNegative(tokens[11], "special discount");
+    if (bill.specialDiscountPercent > 8)
+    {
+        throw invalid_argument("special discount must be at most 8 percent: '" +
+                               tokens[11] + "'");
+    }
+
+    if (!DateUtils::isValidDate(tokens[12]))
+    {
+        throw invalid_argument("bill date must be YYYY-MM-DD: '" + tokens[12] + "'");
+    }
+    bill.billDate = tokens[12];
+
+    if (!DateUtils::isValidTime(tokens[13]))
+    {
+        throw invalid_argument("bill time must be HH:MM:SS: '" + tokens[13] + "'");
+    }
+    bill.billTime = tokens[13];
+
+    return bill;
 }
 
-string BillRecordCodec::format(const BillLine& line)
+string BillRecordCodec::format(const Bill& bill)
 {
-    return line.billId + " " + line.orderId + " " +
-           std::to_string(line.productId) + " " + line.productBarcode + " " +
-           NumberFormat::general(line.quantity) + " " +
-           NumberFormat::general(line.unitPrice) + " " +
-           NumberFormat::general(line.taxPerUnit) + " " +
-           NumberFormat::general(line.discountPerUnit) + " " +
-           NumberFormat::general(line.lineTotal) + " " +
-           line.paymentStatus + " #";
+    return bill.billId + " " + formatCustomerName(bill.customerName) + " " +
+           bill.orderId + " " +
+           NumberFormat::general(bill.totalNoTax) + " " +
+           NumberFormat::general(bill.totalTax) + " " +
+           NumberFormat::general(bill.totalDiscount) + " " +
+           NumberFormat::general(bill.totalPayable) + " " +
+           NumberFormat::general(bill.amountReceived) + " " +
+           NumberFormat::general(bill.balanceReturned) + " " +
+           bill.paymentStatus + " " +
+           NumberFormat::general(bill.seasonalDiscount) + " " +
+           NumberFormat::general(bill.specialDiscountPercent) + " " +
+           bill.billDate + " " + bill.billTime + " #";
 }

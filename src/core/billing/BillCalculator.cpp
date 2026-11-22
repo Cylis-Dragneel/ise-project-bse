@@ -7,7 +7,6 @@
 #include <cmath>
 #include <cstddef>
 #include <iomanip>
-#include <map>
 #include <sstream>
 #include <stdexcept>
 
@@ -73,12 +72,12 @@ double BillCalculator::lineSubtotal(const BillLine& line)
 
 double BillCalculator::lineTax(const BillLine& line)
 {
-    return roundMoney(line.taxPerUnit * line.quantity);
+    return roundMoney(line.taxTotal);
 }
 
 double BillCalculator::lineDiscount(const BillLine& line)
 {
-    return roundMoney(line.discountPerUnit * line.quantity);
+    return roundMoney(line.discountTotal);
 }
 
 double BillCalculator::lineTotal(const BillLine& line)
@@ -89,27 +88,44 @@ double BillCalculator::lineTotal(const BillLine& line)
 }
 
 BillLine BillCalculator::makeLine(const string& billId,
-                                  const string& orderId,
                                   const OrderDetail& detail,
-                                  const Product& product,
-                                  const string& paymentStatus)
+                                  const Product& product)
 {
+    if (!std::isfinite(detail.quantity) || detail.quantity <= 0)
+    {
+        throw std::invalid_argument("quantity must be a positive number");
+    }
+
     BillLine line;
     line.billId = billId;
-    line.orderId = orderId;
-    line.productId = product.id();
-    line.productBarcode = product.barcode();
-    line.quantity = detail.quantity;
+    line.productAcronym = product.acronym();
     line.unitPrice = product.unitPrice();
-    line.taxPerUnit = product.taxAmount();
-    line.discountPerUnit = product.discountPerUnit();
-    line.paymentStatus = paymentStatus;
+    line.quantity = detail.quantity;
+    line.discountTotal = roundMoney(product.discountPerUnit() * detail.quantity);
+    line.taxTotal = roundMoney(product.taxAmount() * detail.quantity);
     line.lineTotal = lineTotal(line);
     return line;
 }
 
-void BillCalculator::calculate(Bill& bill)
+void BillCalculator::calculate(Bill& bill, double seasonalPercent)
 {
+    if (!std::isfinite(seasonalPercent) || seasonalPercent < 0 ||
+        seasonalPercent > 100)
+    {
+        throw std::invalid_argument(
+            "seasonal discount percentage must be between 0 and 100");
+    }
+    if (!std::isfinite(bill.specialDiscountPercent) ||
+        bill.specialDiscountPercent < 0 || bill.specialDiscountPercent > 8)
+    {
+        throw std::invalid_argument(
+            "special discount percentage must be between 0 and 8");
+    }
+    if (!std::isfinite(bill.amountReceived) || bill.amountReceived < 0)
+    {
+        throw std::invalid_argument("amount received must be >= 0");
+    }
+
     bill.totalNoTax = 0;
     bill.totalTax = 0;
     bill.totalDiscount = 0;
@@ -121,65 +137,30 @@ void BillCalculator::calculate(Bill& bill)
         bill.totalNoTax += lineSubtotal(line);
         bill.totalTax += lineTax(line);
         bill.totalDiscount += lineDiscount(line);
-        bill.totalPayable += line.lineTotal;
     }
 
     bill.totalNoTax = roundMoney(bill.totalNoTax);
     bill.totalTax = roundMoney(bill.totalTax);
     bill.totalDiscount = roundMoney(bill.totalDiscount);
-    bill.totalPayable = roundMoney(bill.totalPayable);
+
+    const double base = roundMoney(bill.totalNoTax + bill.totalTax -
+                                   bill.totalDiscount);
+
+    bill.seasonalDiscount = roundMoney(base * seasonalPercent / 100.0);
+    const double afterSeasonal = roundMoney(base - bill.seasonalDiscount);
+    const double specialAmount = roundMoney(
+        afterSeasonal * bill.specialDiscountPercent / 100.0);
+
+    bill.totalPayable = roundMoney(afterSeasonal - specialAmount);
+    bill.balanceReturned = roundMoney(bill.amountReceived - bill.totalPayable);
 }
 
-vector<Bill> BillCalculator::group(const vector<BillLine>& lines)
-{
-    vector<Bill> bills;
-    std::map<string, std::size_t> indexById;
-
-    for (const BillLine& line : lines)
-    {
-        auto found = indexById.find(line.billId);
-        if (found == indexById.end())
-        {
-            Bill bill;
-            bill.billId = line.billId;
-            bill.orderId = line.orderId;
-            bill.paymentStatus = line.paymentStatus;
-            bill.lines.push_back(line);
-
-            indexById[line.billId] = bills.size();
-            bills.push_back(bill);
-        }
-        else
-        {
-            Bill& bill = bills[found->second];
-            if (bill.orderId != line.orderId)
-            {
-                throw std::invalid_argument("bill " + line.billId +
-                                            " mixes order ids");
-            }
-            if (bill.paymentStatus != line.paymentStatus)
-            {
-                throw std::invalid_argument("bill " + line.billId +
-                                            " mixes payment statuses");
-            }
-            bill.lines.push_back(line);
-        }
-    }
-
-    for (Bill& bill : bills)
-    {
-        calculate(bill);
-    }
-
-    return bills;
-}
-
-string BillCalculator::nextBillId(const vector<BillLine>& existing)
+string BillCalculator::nextBillId(const vector<Bill>& existing)
 {
     long long maxId = 0;
-    for (const BillLine& line : existing)
+    for (const Bill& bill : existing)
     {
-        maxId = std::max(maxId, billIdValue(line.billId));
+        maxId = std::max(maxId, billIdValue(bill.billId));
     }
 
     const long long maxAllowed = 999999999LL;

@@ -5,20 +5,20 @@
 
 #include "Bill.h"
 
-// Storage of bill lines. BillingService only depends on this interface, so the
-// tests can use an in-memory repository and the app uses a text file.
+// Storage of bill headers (Bill.txt). BillingService only depends on this
+// interface, so tests can use an in-memory repository and the app a text file.
 class IBillRepository
 {
 public:
     virtual ~IBillRepository() = default;
 
-    // All lines currently stored, in file order. A missing file means "no
-    // bills yet", not an error.
-    virtual std::vector<BillLine> loadAll() = 0;
+    // All headers currently stored, in file order. A missing file means "no
+    // bills yet", not an error. The returned bills have empty `lines`.
+    virtual std::vector<Bill> loadAll() = 0;
 
-    // Appends the lines of one bill. All-or-nothing is not required: a bill is
-    // a receipt, so a partial write is reported as an error.
-    virtual void append(const std::vector<BillLine>& lines) = 0;
+    // Replaces the whole file with `bills`. The implementation must not lose
+    // the old file when the write fails.
+    virtual void saveAll(const std::vector<Bill>& bills) = 0;
 };
 
 #endif // I_BILL_REPOSITORY_H

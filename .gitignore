@@ -72,6 +72,7 @@ Testing/
 /Order.txt
 /OrderDetail.txt
 /Bill.txt
+/BillDetail.txt
 
 # IDE files
 .vscode/

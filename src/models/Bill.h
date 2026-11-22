@@ -4,43 +4,53 @@
 #include <string>
 #include <vector>
 
-// Bill.txt record (one line per bill item, all bills of one order share the
-// bill id):
-//   billId orderId productId productBarcode quantity unitPrice
-//   taxPerUnit discountPerUnit lineTotal paymentStatus #
+// BillDetail.txt record (one line per item):
+//   billId productAcronym unitPriceWithoutTax quantity discountTotal #
 //
-// All fields are single tokens, so a record can be split on whitespace. The
-// customer name and the product acronym are deliberately not copied here:
-// they live in Order.txt / Product.txt and are joined through orderId and
-// productId. This keeps names with spaces out of the bill file.
+// The bill id links to Bill.txt. The product acronym links to Product.txt.
+// discountTotal is the whole-line discount (per-unit discount * quantity), as
+// required by the increment-3 specification.
 //
-// Money is in PKR. unitPrice, taxPerUnit and discountPerUnit are per unit;
-// lineTotal is the rounded amount actually charged for the line.
+// taxTotal and lineTotal are transient: they are filled when a line is built
+// from a product and are not written to BillDetail.txt. A bill loaded from disk
+// therefore has taxTotal = 0; its header still carries the total tax.
 struct BillLine {
-    std::string billId;        // 9 digits, e.g. "000000001"
-    std::string orderId;       // 8 digits, links to Order.txt
-    int productId = 0;
-    std::string productBarcode;
-    double quantity = 0;       // double for weights like 4.5 kg
-    double unitPrice = 0;      // before tax and discount
-    double taxPerUnit = 0;
-    double discountPerUnit = 0;
-    double lineTotal = 0;      // (unitPrice + taxPerUnit - discountPerUnit) * quantity
-    std::string paymentStatus; // in-progress, on-hold, paid, archived
+    std::string billId;          // 9 digits
+    std::string productAcronym;  // e.g. MILK1L
+    double unitPrice = 0;        // without tax
+    double quantity = 0;
+    double discountTotal = 0;    // whole-line discount
+
+    double taxTotal = 0;         // transient, whole line
+    double lineTotal = 0;        // transient, unitPrice*qty + tax - discount
 };
 
-// One bill (receipt) for one order. The line totals and the bill totals are
-// derived values; BillCalculator fills them in.
+// Bill.txt record (one line per bill):
+//   billId customerName orderId totalNoTax totalTax totalDiscount totalPayable
+//   amountReceived balanceReturned paymentStatus seasonalDiscount
+//   specialDiscount billDate billTime #
+//
+// seasonalDiscount is an amount in PKR. specialDiscount is a percentage (0-8),
+// as the specification says "not more than 8 percent"; the amount is derived.
 struct Bill {
-    std::string billId;
-    std::string orderId;
-    std::string paymentStatus;
-    std::vector<BillLine> lines;
+    std::string billId;        // 9 digits, unique in Bill.txt
+    std::string customerName;  // empty is written as "-"
+    std::string orderId;       // 8 digits, links to Order.txt
 
     double totalNoTax = 0;
     double totalTax = 0;
-    double totalDiscount = 0;
+    double totalDiscount = 0;  // product-level discounts only
     double totalPayable = 0;
+    double amountReceived = 0;
+    double balanceReturned = 0;
+
+    std::string paymentStatus; // in-progress, on-hold, paid, archived
+    double seasonalDiscount = 0;
+    double specialDiscountPercent = 0; // 0-8
+    std::string billDate;      // YYYY-MM-DD
+    std::string billTime;      // HH:MM:SS
+
+    std::vector<BillLine> lines;
 };
 
 #endif // BILL_H

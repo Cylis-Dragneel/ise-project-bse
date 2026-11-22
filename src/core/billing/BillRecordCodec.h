@@ -6,20 +6,23 @@
 
 #include "Bill.h"
 
-// Text form of one Bill.txt line. Kept separate from the repository so the
-// format can be tested without touching the disk.
+// Text form of one Bill.txt line (increment 3, one line per bill):
 //
-//   billId orderId productId productBarcode quantity unitPrice taxPerUnit
-//   discountPerUnit lineTotal paymentStatus #
+//   billId customerName orderId totalNoTax totalTax totalDiscount totalPayable
+//   amountReceived balanceReturned paymentStatus seasonalDiscount
+//   specialDiscount billDate billTime #
+//
+// Kept separate from the repository so the format can be tested without
+// touching the disk.
 class BillRecordCodec
 {
 public:
     // Parses ONE record. A trailing '#' is optional, so the output of format()
     // can be parsed directly. Throws std::invalid_argument.
-    static BillLine parse(const std::string& record);
+    static Bill parse(const std::string& record);
 
     // Always ends with '#'.
-    static std::string format(const BillLine& line);
+    static std::string format(const Bill& bill);
 
     // Splits a whole file into records (text before each '#'). Throws if the
     // last record has no '#' marker.
