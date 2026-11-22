@@ -96,12 +96,12 @@ namespace
     }
 }
 
-Product::Product(int id, const string& barcode, const string& acronym,
-    const string& name, MeasurementUnit unit, double unitPrice,
-    double taxAmount, double discountPerUnit,
+Product::Product(int id, const string& barcode, const string& categoryId,
+    const string& acronym, const string& name, MeasurementUnit unit,
+    double unitPrice, double taxAmount, double discountPerUnit,
     double availableQuantity, const string& barcodeImagePath)
-    : id_(id), barcode_(barcode), acronym_(acronym), name_(name), unit_(unit),
-    unitPrice_(unitPrice), taxAmount_(taxAmount),
+    : id_(id), barcode_(barcode), categoryId_(categoryId), acronym_(acronym),
+    name_(name), unit_(unit), unitPrice_(unitPrice), taxAmount_(taxAmount),
     discountPerUnit_(discountPerUnit), availableQuantity_(availableQuantity),
     barcodeImagePath_(barcodeImagePath)
 {
@@ -111,6 +111,15 @@ Product::Product(int id, const string& barcode, const string& acronym,
     if (!isDigitsOnly(barcode_) || barcode_.size() != barcodeLength() || barcode_[0] == '0')
         throw invalid_argument("barcode must be exactly " + std::to_string(barcodeLength()) +
             " digits (100000-999999), got '" + barcode_ + "'");
+
+    // The category id is two digits 10-99 and is encoded in the barcode prefix.
+    if (!isDigitsOnly(categoryId_) || categoryId_.size() != 2 ||
+        categoryId_[0] == '0')
+        throw invalid_argument("category id must be exactly 2 digits (10-99), got '" +
+            categoryId_ + "'");
+    if (barcode_.substr(0, 2) != categoryId_)
+        throw invalid_argument("barcode '" + barcode_ + "' does not start with category id '" +
+            categoryId_ + "'");
 
     requireSingleWord(acronym_, "acronym");
     if (acronym_.size() > maxAcronymLength())
@@ -154,4 +163,15 @@ void Product::addStock(double quantity)
     if (availableQuantity_ + quantity > maxValue())
         throw invalid_argument("stock would exceed the maximum allowed quantity");
     availableQuantity_ += quantity;
+}
+
+void Product::setAvailableQuantity(double quantity)
+{
+    if (!std::isfinite(quantity) || quantity < 0)
+        throw invalid_argument("available quantity must be a number >= 0");
+    if (quantity > maxValue())
+        throw invalid_argument("available quantity is too large");
+    if (unit_ == MeasurementUnit::Count && !isWhole(quantity))
+        throw invalid_argument("available quantity of a 'count' product must be a whole number");
+    availableQuantity_ = quantity;
 }

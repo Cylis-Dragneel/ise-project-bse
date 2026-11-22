@@ -70,7 +70,7 @@ protected:
 
 Product makeCountProduct()
 {
-    return Product(1, "428647", "MILK1L", "Milk 1 Litre",
+    return Product(1, "428647", "42", "MILK1L", "Milk 1 Litre",
                    MeasurementUnit::Count, 280, 14, 10, 50,
                    "barcodes/428647.png");
 }
@@ -180,52 +180,52 @@ TEST_CASE(product_rejects_invalid_fields)
 {
     const MeasurementUnit count = MeasurementUnit::Count;
 
-    CHECK_THROWS_AS(Product(0, "428647", "A", "Name", count, 1, 0, 0, 1, "a.png"),
+    CHECK_THROWS_AS(Product(0, "428647", "42", "A", "Name", count, 1, 0, 0, 1, "a.png"),
                     std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "012345", "A", "Name", count, 1, 0, 0, 1, "a.png"),
+    CHECK_THROWS_AS(Product(1, "012345", "01", "A", "Name", count, 1, 0, 0, 1, "a.png"),
                     std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "12345", "A", "Name", count, 1, 0, 0, 1, "a.png"),
+    CHECK_THROWS_AS(Product(1, "12345", "12", "A", "Name", count, 1, 0, 0, 1, "a.png"),
                     std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "1234567", "A", "Name", count, 1, 0, 0, 1, "a.png"),
+    CHECK_THROWS_AS(Product(1, "1234567", "12", "A", "Name", count, 1, 0, 0, 1, "a.png"),
                     std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "12345a", "A", "Name", count, 1, 0, 0, 1, "a.png"),
-                    std::invalid_argument);
-
-    CHECK_THROWS_AS(Product(1, "428647", "ABCDEFGHI", "Name", count, 1, 0, 0, 1, "a.png"),
-                    std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "428647", "", "Name", count, 1, 0, 0, 1, "a.png"),
-                    std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "428647", "A B", "Name", count, 1, 0, 0, 1, "a.png"),
+    CHECK_THROWS_AS(Product(1, "12345a", "12", "A", "Name", count, 1, 0, 0, 1, "a.png"),
                     std::invalid_argument);
 
-    CHECK_THROWS_AS(Product(1, "428647", "A", "", count, 1, 0, 0, 1, "a.png"),
+    CHECK_THROWS_AS(Product(1, "428647", "42", "ABCDEFGHI", "Name", count, 1, 0, 0, 1, "a.png"),
                     std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "428647", "A", "Milk_1L", count, 1, 0, 0, 1, "a.png"),
+    CHECK_THROWS_AS(Product(1, "428647", "42", "", "Name", count, 1, 0, 0, 1, "a.png"),
                     std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "428647", "A", "Milk#1", count, 1, 0, 0, 1, "a.png"),
-                    std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "428647", "A", " Milk", count, 1, 0, 0, 1, "a.png"),
-                    std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "428647", "A", "Milk  1L", count, 1, 0, 0, 1, "a.png"),
-                    std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "428647", "A", "Milk\n1L", count, 1, 0, 0, 1, "a.png"),
+    CHECK_THROWS_AS(Product(1, "428647", "42", "A B", "Name", count, 1, 0, 0, 1, "a.png"),
                     std::invalid_argument);
 
-    CHECK_THROWS_AS(Product(1, "428647", "A", "Name", count, -1, 0, 0, 1, "a.png"),
+    CHECK_THROWS_AS(Product(1, "428647", "42", "A", "", count, 1, 0, 0, 1, "a.png"),
                     std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "428647", "A", "Name", count, 1, -1, 0, 1, "a.png"),
+    CHECK_THROWS_AS(Product(1, "428647", "42", "A", "Milk_1L", count, 1, 0, 0, 1, "a.png"),
                     std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "428647", "A", "Name", count, 1, 0, 5, 1, "a.png"),
+    CHECK_THROWS_AS(Product(1, "428647", "42", "A", "Milk#1", count, 1, 0, 0, 1, "a.png"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(Product(1, "428647", "42", "A", " Milk", count, 1, 0, 0, 1, "a.png"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(Product(1, "428647", "42", "A", "Milk  1L", count, 1, 0, 0, 1, "a.png"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(Product(1, "428647", "42", "A", "Milk\n1L", count, 1, 0, 0, 1, "a.png"),
+                    std::invalid_argument);
+
+    CHECK_THROWS_AS(Product(1, "428647", "42", "A", "Name", count, -1, 0, 0, 1, "a.png"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(Product(1, "428647", "42", "A", "Name", count, 1, -1, 0, 1, "a.png"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(Product(1, "428647", "42", "A", "Name", count, 1, 0, 5, 1, "a.png"),
                     std::invalid_argument);
     CHECK_THROWS_AS(
-        Product(1, "428647", "A", "Name", count,
+        Product(1, "428647", "42", "A", "Name", count,
                 std::numeric_limits<double>::quiet_NaN(), 0, 0, 1, "a.png"),
         std::invalid_argument);
-    CHECK_THROWS_AS(Product(1, "428647", "A", "Name", count, 1, 0, 0, 1.5, "a.png"),
+    CHECK_THROWS_AS(Product(1, "428647", "42", "A", "Name", count, 1, 0, 0, 1.5, "a.png"),
                     std::invalid_argument);
 
     // Boundary values that must be accepted.
-    CHECK(Product(1, "100000", "A", "Name", count, 0, 0, 0, 0, "a.png").id() == 1);
+    CHECK(Product(1, "100000", "10", "A", "Name", count, 0, 0, 0, 0, "a.png").id() == 1);
 
     CHECK_EQ(measurementUnitToString(MeasurementUnit::Weight), std::string("weight"));
     CHECK(measurementUnitFromString("COUNT") == MeasurementUnit::Count);
@@ -252,7 +252,7 @@ TEST_CASE(product_stock_checks_use_the_team_rule)
     CHECK_THROWS_AS(product.addStock(0.0), std::invalid_argument);
 
     // Weight products accept fractional quantities.
-    Product sugar(3, "579158", "SUGAR", "Sugar Loose", MeasurementUnit::Weight,
+    Product sugar(3, "579158", "57", "SUGAR", "Sugar Loose", MeasurementUnit::Weight,
                   160, 8, 0, 35.5, "barcodes/579158.png");
     CHECK(sugar.hasStockFor(0.5));
     CHECK(sugar.hasStockFor(35.5));
@@ -395,4 +395,113 @@ TEST_CASE(sample_data_matches_the_committed_barcode_images)
         std::ifstream image(dataDir + "/" + product.barcodeImagePath());
         CHECK(image.good());
     }
+}
+
+TEST_CASE(product_category_must_match_the_barcode_prefix)
+{
+    const MeasurementUnit count = MeasurementUnit::Count;
+
+    // Category 42 matches the 42 prefix.
+    CHECK_EQ(Product(1, "428647", "42", "A", "Name", count, 1, 0, 0, 1, "a.png")
+                 .categoryId(),
+             std::string("42"));
+
+    // A mismatch is rejected.
+    CHECK_THROWS_AS(Product(1, "428647", "35", "A", "Name", count, 1, 0, 0, 1, "a.png"),
+                    std::invalid_argument);
+    // Leading-zero / malformed category ids are rejected.
+    CHECK_THROWS_AS(Product(1, "428647", "02", "A", "Name", count, 1, 0, 0, 1, "a.png"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(Product(1, "428647", "4", "A", "Name", count, 1, 0, 0, 1, "a.png"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(Product(1, "428647", "4a", "A", "Name", count, 1, 0, 0, 1, "a.png"),
+                    std::invalid_argument);
+}
+
+TEST_CASE(product_record_reads_legacy_rows_and_infers_the_category)
+{
+    // Increment-2 row: no category field.
+    const Product legacy = ProductRecordCodec::parse(
+        "1 428647 MILK1L Milk_1_Litre count 280 14 10 50 barcodes/428647.png #");
+
+    CHECK_EQ(legacy.id(), 1);
+    CHECK_EQ(legacy.barcode(), std::string("428647"));
+    CHECK_EQ(legacy.categoryId(), std::string("42")); // inferred from the barcode
+    CHECK_EQ(legacy.acronym(), std::string("MILK1L"));
+    CHECK_EQ(legacy.name(), std::string("Milk 1 Litre"));
+
+    // A multi-word name still works.
+    const Product legacyLong = ProductRecordCodec::parse(
+        "2 358306 RICE5KG Basmati Rice 5kg count 1450 72.5 50 20 b.png #");
+    CHECK_EQ(legacyLong.categoryId(), std::string("35"));
+    CHECK_EQ(legacyLong.name(), std::string("Basmati Rice 5kg"));
+}
+
+TEST_CASE(product_record_writes_the_category_field)
+{
+    const std::string record = ProductRecordCodec::format(makeCountProduct());
+
+    // id barcode categoryId acronym ...
+    CHECK(record.rfind("1 428647 42 MILK1L ", 0) == 0);
+
+    const Product parsed = ProductRecordCodec::parse(record);
+    CHECK_EQ(parsed.categoryId(), std::string("42"));
+    CHECK_EQ(parsed.acronym(), std::string("MILK1L"));
+}
+
+TEST_CASE(catalog_rejects_duplicate_acronyms)
+{
+    writeFile(catalogPath,
+              "1 428647 42 MILK1L One count 10 0 0 1 a.png#\n"
+              "2 358306 35 milk1l Two count 10 0 0 1 b.png#\n");
+
+    ProductCatalog catalog(std::make_shared<FileProductRepository>(catalogPath));
+    CHECK_THROWS_AS(catalog.load(), std::invalid_argument);
+
+    std::remove(catalogPath);
+}
+
+TEST_CASE(catalog_adds_updates_and_sets_stock)
+{
+    copyFixtureTo(catalogPath);
+
+    ProductCatalog catalog(std::make_shared<FileProductRepository>(catalogPath));
+    catalog.load();
+
+    catalog.addProduct(Product(8, "420001", "42", "BUTTER", "Butter", MeasurementUnit::Count,
+                               400, 20, 0, 10, "barcodes/420001.png"));
+    CHECK(catalog.findById(8) != nullptr);
+    CHECK(catalog.findByBarcode("420001") != nullptr);
+
+    catalog.updateProduct(Product(8, "420001", "42", "BUTTER", "Salted Butter",
+                                  MeasurementUnit::Count, 450, 22.5, 5, 10,
+                                  "barcodes/420001.png"));
+    CHECK_EQ(catalog.findById(8)->name(), std::string("Salted Butter"));
+
+    catalog.setStock("420001", 4);
+    CHECK(catalog.findByBarcode("420001")->availableQuantity() == 4.0);
+
+    // Everything is persisted.
+    ProductCatalog reloaded(std::make_shared<FileProductRepository>(catalogPath));
+    reloaded.load();
+    CHECK_EQ(reloaded.findById(8)->name(), std::string("Salted Butter"));
+    CHECK(reloaded.findByBarcode("420001")->availableQuantity() == 4.0);
+
+    // Duplicate id / barcode / acronym are rejected.
+    CHECK_THROWS_AS(catalog.addProduct(Product(8, "420002", "42", "OTHER", "Other",
+                                               MeasurementUnit::Count, 1, 0, 0, 1, "a.png")),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(catalog.addProduct(Product(9, "420001", "42", "OTHER", "Other",
+                                               MeasurementUnit::Count, 1, 0, 0, 1, "a.png")),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(catalog.addProduct(Product(9, "420002", "42", "butter", "Other",
+                                               MeasurementUnit::Count, 1, 0, 0, 1, "a.png")),
+                    std::invalid_argument);
+
+    // Stock cannot be set below zero or fractionally for a count product.
+    CHECK_THROWS_AS(catalog.setStock("420001", -1), std::invalid_argument);
+    CHECK_THROWS_AS(catalog.setStock("420001", 1.5), std::invalid_argument);
+    CHECK_THROWS_AS(catalog.setStock("111111", 1), std::invalid_argument);
+
+    std::remove(catalogPath);
 }

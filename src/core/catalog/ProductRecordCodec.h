@@ -8,10 +8,15 @@
 
 // Knows ONLY the text format of Product.txt. No file access here.
 //
-// One record:
-//   id barcode acronym name unit unitPrice tax discount quantity barcodePath#
+// One record (increment 3):
+//   id barcode categoryId acronym name unit unitPrice tax discount quantity barcodePath#
 // Name may be written with '_' instead of spaces (Milk_1_Litre); both forms
 // are accepted when reading, '_' is used when writing.
+//
+// Legacy increment-2 records have no categoryId:
+//   id barcode acronym name unit unitPrice tax discount quantity barcodePath#
+// They are still accepted; the category id is inferred from the first two
+// barcode digits. format() always writes the 11-field form.
 class ProductRecordCodec
 {
 public:

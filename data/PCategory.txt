@@ -1,0 +1,7 @@
+42 Dairy_&_Breakfast DAIRY #
+35 Rice_&_Grains GRAIN #
+57 Sugar_&_Sweeteners SUGAR #
+93 Tea_&_Beverages TEA #
+38 Personal_Care CARE #
+14 Cooking_Essentials COOK #
+86 Flour_&_Baking FLOUR #

@@ -1,9 +1,22 @@
 #include "ProductCatalog.h"
+#include <cctype>
 #include <cmath>
 #include <stdexcept>
 
 using std::string;
 using std::vector;
+
+namespace
+{
+    string lowerCopy(const string& text)
+    {
+        string lower;
+        lower.reserve(text.size());
+        for (size_t i = 0; i < text.size(); i++)
+            lower += static_cast<char>(std::tolower(static_cast<unsigned char>(text[i])));
+        return lower;
+    }
+}
 
 ProductCatalog::ProductCatalog(std::shared_ptr<IProductRepository> repository)
     : repository_(std::move(repository))
@@ -12,18 +25,44 @@ ProductCatalog::ProductCatalog(std::shared_ptr<IProductRepository> repository)
         throw std::invalid_argument("ProductCatalog needs a repository");
 }
 
+void ProductCatalog::rebuildIndexes()
+{
+    indexByBarcode_.clear();
+    indexById_.clear();
+    for (size_t i = 0; i < products_.size(); i++)
+    {
+        indexByBarcode_[products_[i].barcode()] = i;
+        indexById_[products_[i].id()] = i;
+    }
+}
+
+void ProductCatalog::rejectDuplicateAcronym(const Product& product,
+                                            std::size_t ignoreIndex) const
+{
+    const string wanted = lowerCopy(product.acronym());
+    for (size_t i = 0; i < products_.size(); i++)
+    {
+        if (i == ignoreIndex) continue;
+        if (lowerCopy(products_[i].acronym()) == wanted)
+            throw std::invalid_argument("duplicate product acronym: " + product.acronym());
+    }
+}
+
 void ProductCatalog::load()
 {
     vector<Product> loaded = repository_->loadAll();
 
     std::unordered_map<string, size_t> byBarcode;
     std::map<int, size_t> byId;
+    std::map<string, size_t> byAcronym;
     for (size_t i = 0; i < loaded.size(); i++)
     {
         if (!byId.insert(std::make_pair(loaded[i].id(), i)).second)
             throw std::invalid_argument("duplicate product id: " + std::to_string(loaded[i].id()));
         if (!byBarcode.insert(std::make_pair(loaded[i].barcode(), i)).second)
             throw std::invalid_argument("duplicate barcode: " + loaded[i].barcode());
+        if (!byAcronym.insert(std::make_pair(lowerCopy(loaded[i].acronym()), i)).second)
+            throw std::invalid_argument("duplicate product acronym: " + loaded[i].acronym());
     }
 
     // Only replace the current data once everything is known to be valid.
@@ -90,6 +129,80 @@ void ProductCatalog::deductStock(const vector<StockRequest>& requests)
     catch (...)
     {
         products_ = backup;
+        rebuildIndexes();
+        throw;
+    }
+}
+
+void ProductCatalog::addProduct(const Product& product)
+{
+    if (indexById_.find(product.id()) != indexById_.end())
+        throw std::invalid_argument("duplicate product id: " + std::to_string(product.id()));
+    if (indexByBarcode_.find(product.barcode()) != indexByBarcode_.end())
+        throw std::invalid_argument("duplicate barcode: " + product.barcode());
+    rejectDuplicateAcronym(product, products_.size());
+
+    const vector<Product> backup = products_;
+    products_.push_back(product);
+    rebuildIndexes();
+
+    try
+    {
+        repository_->saveAll(products_);
+    }
+    catch (...)
+    {
+        products_ = backup;
+        rebuildIndexes();
+        throw;
+    }
+}
+
+void ProductCatalog::updateProduct(const Product& product)
+{
+    auto found = indexById_.find(product.id());
+    if (found == indexById_.end())
+        throw std::invalid_argument("unknown product id: " + std::to_string(product.id()));
+
+    // Another product may not already use this barcode or acronym.
+    auto barcodeOwner = indexByBarcode_.find(product.barcode());
+    if (barcodeOwner != indexByBarcode_.end() && barcodeOwner->second != found->second)
+        throw std::invalid_argument("duplicate barcode: " + product.barcode());
+    rejectDuplicateAcronym(product, found->second);
+
+    const vector<Product> backup = products_;
+    products_[found->second] = product;
+    rebuildIndexes();
+
+    try
+    {
+        repository_->saveAll(products_);
+    }
+    catch (...)
+    {
+        products_ = backup;
+        rebuildIndexes();
+        throw;
+    }
+}
+
+void ProductCatalog::setStock(const string& barcode, double quantity)
+{
+    auto found = indexByBarcode_.find(barcode);
+    if (found == indexByBarcode_.end())
+        throw std::invalid_argument("unknown product barcode: " + barcode);
+
+    const vector<Product> backup = products_;
+    products_[found->second].setAvailableQuantity(quantity);
+
+    try
+    {
+        repository_->saveAll(products_);
+    }
+    catch (...)
+    {
+        products_ = backup;
+        rebuildIndexes();
         throw;
     }
 }

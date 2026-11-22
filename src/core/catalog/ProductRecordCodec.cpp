@@ -10,8 +10,14 @@ using std::vector;
 
 namespace
 {
-    const size_t FIELDS_BEFORE_NAME = 3; // id, barcode, acronym
-    const size_t FIELDS_AFTER_NAME = 6; // unit, price, tax, discount, quantity, path
+    const size_t FIELDS_AFTER_UNIT = 5; // price, tax, discount, quantity, path
+
+    bool isTwoDigits(const string& text)
+    {
+        return text.size() == 2 &&
+            std::isdigit(static_cast<unsigned char>(text[0])) &&
+            std::isdigit(static_cast<unsigned char>(text[1]));
+    }
 
     bool isBlank(const string& s)
     {
@@ -87,16 +93,36 @@ Product ProductRecordCodec::parse(const string& recordIn)
     string token;
     while (in >> token) t.push_back(token);
 
-    const size_t minFields = FIELDS_BEFORE_NAME + 1 + FIELDS_AFTER_NAME;
-    if (t.size() < minFields)
-        throw invalid_argument("expected at least " + std::to_string(minFields) +
+    // The measurement unit is the only token that can be "count"/"weight".
+    size_t unitIndex = t.size();
+    for (size_t i = 0; i < t.size(); i++)
+    {
+        if (t[i] == "count" || t[i] == "weight")
+        {
+            unitIndex = i;
+            break;
+        }
+    }
+    if (unitIndex == t.size())
+        throw invalid_argument("missing measurement unit ('count' or 'weight')");
+    if (t.size() != unitIndex + 1 + FIELDS_AFTER_UNIT)
+        throw invalid_argument("expected " + std::to_string(unitIndex + 1 + FIELDS_AFTER_UNIT) +
             " fields but found " + std::to_string(t.size()));
 
-    // The name may contain spaces, so it is everything between the first 3
-    // and the last 6 fields.
-    const size_t nameEnd = t.size() - FIELDS_AFTER_NAME;
+    // New records carry categoryId at index 2 and the acronym at index 3.
+    // Legacy records have the acronym at index 2; the category is inferred from
+    // the barcode prefix. A new record always has at least five tokens before
+    // the unit (id, barcode, categoryId, acronym, one name word).
+    const bool hasCategory = unitIndex >= 4 && isTwoDigits(t[2]);
+    const size_t acronymIndex = hasCategory ? 3 : 2;
+    const size_t nameStart = acronymIndex + 1;
+    if (unitIndex <= nameStart)
+        throw invalid_argument("product name is missing");
+
+    // The name may contain spaces, so it is everything between the acronym and
+    // the measurement unit.
     string name;
-    for (size_t i = FIELDS_BEFORE_NAME; i < nameEnd; i++)
+    for (size_t i = nameStart; i < unitIndex; i++)
     {
         if (!name.empty()) name += ' ';
         name += t[i];
@@ -104,16 +130,19 @@ Product ProductRecordCodec::parse(const string& recordIn)
     for (size_t i = 0; i < name.size(); i++)
         if (name[i] == '_') name[i] = ' ';
 
+    const string categoryId = hasCategory ? t[2] : t[1].substr(0, 2);
+
     return Product(parseInt(t[0], "product id"),
         t[1],
-        t[2],
+        categoryId,
+        t[acronymIndex],
         name,
-        measurementUnitFromString(t[nameEnd]),
-        parseDouble(t[nameEnd + 1], "unit price"),
-        parseDouble(t[nameEnd + 2], "tax"),
-        parseDouble(t[nameEnd + 3], "discount"),
-        parseDouble(t[nameEnd + 4], "available quantity"),
-        t[nameEnd + 5]);
+        measurementUnitFromString(t[unitIndex]),
+        parseDouble(t[unitIndex + 1], "unit price"),
+        parseDouble(t[unitIndex + 2], "tax"),
+        parseDouble(t[unitIndex + 3], "discount"),
+        parseDouble(t[unitIndex + 4], "available quantity"),
+        t[unitIndex + 5]);
 }
 
 string ProductRecordCodec::format(const Product& p)
@@ -122,8 +151,8 @@ string ProductRecordCodec::format(const Product& p)
     for (size_t i = 0; i < name.size(); i++)
         if (name[i] == ' ') name[i] = '_';
 
-    return std::to_string(p.id()) + " " + p.barcode() + " " + p.acronym() + " " +
-        name + " " + measurementUnitToString(p.unit()) + " " +
+    return std::to_string(p.id()) + " " + p.barcode() + " " + p.categoryId() + " " +
+        p.acronym() + " " + name + " " + measurementUnitToString(p.unit()) + " " +
         NumberFormat::general(p.unitPrice()) + " " +
         NumberFormat::general(p.taxAmount()) + " " +
         NumberFormat::general(p.discountPerUnit()) + " " +

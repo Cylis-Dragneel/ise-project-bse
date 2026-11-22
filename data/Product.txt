@@ -1,7 +1,7 @@
-1 428647 MILK1L Milk_1_Litre count 280 14 10 50 barcodes/428647.png#
-2 358306 RICE5KG Basmati_Rice_5kg count 1450 72.5 50 20 barcodes/358306.png#
-3 579158 SUGAR Sugar_Loose weight 160 8 0 35.5 barcodes/579158.png#
-4 938038 TEA Tea_Leaves_Premium count 620 31 20 12 barcodes/938038.png#
-5 381093 SOAP Bath_Soap count 95 4.75 5 0 barcodes/381093.png#
-6 145306 OIL1L Cooking_Oil_1L count 520 26 15 30 barcodes/145306.png#
-7 867950 ATTA Flour_Atta weight 140 7 0 80.5 barcodes/867950.png#
+1 428647 42 MILK1L Milk_1_Litre count 280 14 10 50 barcodes/428647.png#
+2 358306 35 RICE5KG Basmati_Rice_5kg count 1450 72.5 50 20 barcodes/358306.png#
+3 579158 57 SUGAR Sugar_Loose weight 160 8 0 35.5 barcodes/579158.png#
+4 938038 93 TEA Tea_Leaves_Premium count 620 31 20 12 barcodes/938038.png#
+5 381093 38 SOAP Bath_Soap count 95 4.75 5 0 barcodes/381093.png#
+6 145306 14 OIL1L Cooking_Oil_1L count 520 26 15 30 barcodes/145306.png#
+7 867950 86 ATTA Flour_Atta weight 140 7 0 80.5 barcodes/867950.png#

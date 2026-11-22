@@ -16,6 +16,7 @@ class Product
 private:
     int id_;
     std::string barcode_;
+    std::string categoryId_;
     std::string acronym_;
     std::string name_;
     MeasurementUnit unit_;
@@ -37,6 +38,7 @@ public:
     // Throws std::invalid_argument if any field breaks a rule.
     Product(int id,
         const std::string& barcode,
+        const std::string& categoryId,
         const std::string& acronym,
         const std::string& name,
         MeasurementUnit unit,
@@ -48,6 +50,7 @@ public:
 
     int id() const { return id_; }
     const std::string& barcode() const { return barcode_; }
+    const std::string& categoryId() const { return categoryId_; }
     const std::string& acronym() const { return acronym_; }
     const std::string& name() const { return name_; }
     MeasurementUnit unit() const { return unit_; }
@@ -64,6 +67,11 @@ public:
     // Throws std::out_of_range if the stock is not enough.
     void reduceStock(double quantity);
     void addStock(double quantity);
+
+    // Manager stock correction: sets the available quantity directly.
+    // Throws std::invalid_argument for a negative, non-finite or (for count
+    // products) fractional quantity.
+    void setAvailableQuantity(double quantity);
 };
 
 #endif
