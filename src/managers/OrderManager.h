@@ -33,6 +33,17 @@ public:
     static bool findOrder(const std::string& orderId,
                           Order& result,
                           const std::string& orderFilePath = "Order.txt");
+
+    static bool updateOrderTransaction(
+        const Order &order,
+        const std::vector<OrderDetail> &details,
+        const std::string &orderFilePath = "Order.txt",
+        const std::string &detailFilePath = "OrderDetail.txt");
+
+    // 2. Overload loadOrders to support status filtering
+    static std::vector<Order> loadOrders(
+        const std::string &statusFilter,
+        const std::string &orderFilePath);
 };
 
 #endif

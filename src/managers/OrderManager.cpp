@@ -533,3 +533,112 @@ bool OrderManager::findOrder(const std::string &orderId,
 
     return false;
 }
+
+// Helper to replace or remove records by orderId using a crash-safe temp file
+bool replaceFileLines(const std::string &filePath, const std::string &targetOrderId, const std::vector<std::string> &newLines)
+{
+    std::ifstream inFile(filePath);
+    if (!inFile.is_open())
+    {
+        return false;
+    }
+
+    std::string tempPath = filePath + ".tmp";
+    std::ofstream outFile(tempPath);
+    if (!outFile.is_open())
+    {
+        inFile.close();
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(inFile, line))
+    {
+        const std::vector<std::string> tokens = split(line);
+        if (!tokens.empty() && tokens[0] == targetOrderId)
+        {
+            // Skip target order lines (we will write the new ones instead)
+            continue;
+        }
+        outFile << line << "\n";
+    }
+
+    // Append new lines for this order if any exist
+    for (const std::string &newLine : newLines)
+    {
+        outFile << newLine << "\n";
+    }
+
+    inFile.close();
+    outFile.close();
+
+    std::remove(filePath.c_str());
+    return std::rename(tempPath.c_str(), filePath.c_str()) == 0;
+}
+
+bool OrderManager::updateOrderTransaction(
+    const Order &order,
+    const std::vector<OrderDetail> &details,
+    const std::string &orderFilePath,
+    const std::string &detailFilePath)
+{
+    if (!validateOrder(order, details))
+    {
+        return false;
+    }
+
+    // Format updated order line
+    std::ostringstream orderLineStream;
+    orderLineStream << order.orderId << ' ' << order.date << ' ' << order.time << ' '
+                    << sanitize(order.customerName) << ' '
+                    << sanitize(order.contact) << ' ' << order.status << ' '
+                    << formatNumber(order.paymentAmount) << ' '
+                    << order.paymentMode << ' ' << sanitize(order.merchant)
+                    << " #";
+
+    // Format updated detail lines
+    std::vector<std::string> detailLines;
+    for (const OrderDetail &detail : details)
+    {
+        std::ostringstream detailStream;
+        detailStream << detail.orderId << ' ' << detail.productId << ' '
+                     << detail.productBarcode << ' '
+                     << formatNumber(detail.quantity) << " #";
+        detailLines.push_back(detailStream.str());
+    }
+
+    // Perform crash-safe updates on both files
+    if (!replaceFileLines(orderFilePath, order.orderId, {orderLineStream.str()}))
+    {
+        return false;
+    }
+
+    if (!replaceFileLines(detailFilePath, order.orderId, detailLines))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+// Overloaded loadOrders with status filtering for the resume workflow
+std::vector<Order> OrderManager::loadOrders(
+    const std::string &statusFilter,
+    const std::string &orderFilePath)
+{
+    const std::vector<Order> allOrders = loadOrders(orderFilePath);
+    if (statusFilter.empty())
+    {
+        return allOrders;
+    }
+
+    std::vector<Order> filtered;
+    for (const Order &order : allOrders)
+    {
+        if (order.status == statusFilter)
+        {
+            filtered.push_back(order);
+        }
+    }
+    return filtered;
+}
