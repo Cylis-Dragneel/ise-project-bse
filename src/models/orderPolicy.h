@@ -1,62 +1,57 @@
-#ifndef ORDERPOLICY_H
-#define ORDERPOLICY_H
+#ifndef ORDER_POLICY_H
+#define ORDER_POLICY_H
 
 #include <string>
-#include <sstream>
-#include <ctime>
+#include "../models/Order.h"
 
-class OrderPolicy
-{
-private:
-    static std::time_t parseDate(const std::string& dateStr) {
-        std::tm tm = {};
-        std::istringstream ss(dateStr);
-        char dash1, dash2;
-        ss >> tm.tm_year >> dash1 >> tm.tm_mon >> dash2 >> tm.tm_mday;
-        tm.tm_year -= 1900;
-        tm.tm_mon -= 1;
-        tm.tm_hour = 0;
-        tm.tm_min = 0;
-        tm.tm_sec = 0;
-        return std::mktime(&tm);
-    }
-
-public:
-    static int daysBetween(const std::string& startDateStr, const std::string& endDateStr) {
-        std::time_t t1 = parseDate(startDateStr);
-        std::time_t t2 = parseDate(endDateStr);
-        double diffSeconds = std::difftime(t2, t1);
-        return static_cast<int>(diffSeconds / (60 * 60 * 24));
-    }
-
-    static bool requiresManagerApproval(const std::string& status, const std::string& orderDate, 
-                                        const std::string& billDate, const std::string& currentDate) {
-        if (status != "paid" && status != "Completed") return false;
-        
-        std::string refDate = billDate.empty() ? orderDate : billDate;
-        if (refDate.length() >= 10 && currentDate.length() >= 10) {
-            std::string refDay = refDate.substr(0, 10);
-            std::string currDay = currentDate.substr(0, 10);
-            int days = daysBetween(refDay, currDay);
-            return days > 7;
-        }
-        return false;
-    }
-
-    static bool canEdit(const std::string& status, const std::string& orderDate, 
-                        const std::string& billDate, const std::string& currentDate, 
-                        bool managerApproved = false) {
-        if (status == "archived") return false;
-        if (status == "on-hold" || status == "in-progress" || status == "Pending") return true;
-
-        if (status == "paid" || status == "Completed") {
-            if (requiresManagerApproval(status, orderDate, billDate, currentDate)) {
-                return managerApproved;
-            }
-            return true; 
-        }
-        return true;
-    }
+// Timestamp of the bill belonging to an order, if one exists. OrderPolicy only
+// needs the date, so it does not depend on Person C's Bill model; the caller
+// fills this from Bill.billDate / Bill.billTime (hasBill = false when the
+// order has no bill yet).
+struct BillStamp {
+    bool hasBill = false;
+    std::string date;   // YYYY-MM-DD
+    std::string time;   // HH:MM:SS (informational; the rule works on dates)
 };
 
-#endif ORDERPOLICY_H
+// Qt-free rules for editing orders (requirement 3).
+//
+//   archived              -> never editable
+//   on-hold / in-progress -> always editable
+//   paid                  -> editable directly while the bill (or, with no
+//                            bill, the order) is at most 7 days old;
+//                            older than that it needs manager approval.
+//
+// "Days old" is whole calendar days between the stamp date and `today`, so
+// day 7 is still direct and day 8 needs approval.
+class OrderPolicy {
+public:
+    static constexpr int kPaidEditWindowDays = 7;
+
+    static bool isUnpaid(const std::string &status);   // in-progress/on-hold
+
+    // Allowed status changes. Same-status is always allowed; archived is final.
+    //   in-progress -> on-hold | paid | archived
+    //   on-hold     -> in-progress | paid | archived
+    //   paid        -> archived
+    static bool canTransition(const std::string &from, const std::string &to);
+
+    // True when a paid order's stamp is within the 7-day window.
+    // An invalid date (stamp or today) counts as outside the window.
+    static bool isWithinPaidEditWindow(const Order &order,
+                                       const BillStamp &bill,
+                                       const std::string &today);
+
+    // Paid and outside the 7-day window.
+    static bool requiresManagerApproval(const Order &order,
+                                        const BillStamp &bill,
+                                        const std::string &today);
+
+    // `managerApproved` is the per-order, per-session approval from the UI.
+    static bool canEdit(const Order &order,
+                        const BillStamp &bill,
+                        const std::string &today,
+                        bool managerApproved = false);
+};
+
+#endif

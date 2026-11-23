@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
@@ -258,6 +259,122 @@ bool orderIdExists(const std::string &orderId, const std::string &path)
     }
 
     return false;
+}
+
+std::string formatOrderLine(const Order &order)
+{
+    std::ostringstream line;
+    line << order.orderId << ' ' << order.date << ' ' << order.time << ' '
+         << sanitize(order.customerName) << ' '
+         << sanitize(order.contact) << ' ' << order.status << ' '
+         << formatNumber(order.paymentAmount) << ' '
+         << order.paymentMode << ' ' << sanitize(order.merchant) << " #";
+    return line.str();
+}
+
+std::string formatDetailLine(const OrderDetail &detail)
+{
+    std::ostringstream line;
+    line << detail.orderId << ' ' << detail.productId << ' '
+         << detail.productBarcode << ' ' << formatNumber(detail.quantity)
+         << " #";
+    return line.str();
+}
+
+bool readLines(const std::string &path, std::vector<std::string> &lines)
+{
+    std::ifstream file(path);
+    if (!file.is_open())
+    {
+        return false;
+    }
+
+    lines.clear();
+    std::string line;
+    while (std::getline(file, line))
+    {
+        lines.push_back(line);
+    }
+
+    return !file.bad();
+}
+
+// Rebuilds `lines`, putting `newLines` where the first row of `targetId`
+// was (so file order is preserved) and dropping any other rows of that id.
+// When the id has no rows yet, `newLines` are appended. `found` reports
+// whether at least one existing row matched.
+std::vector<std::string> replaceRows(const std::vector<std::string> &lines,
+                                     const std::string &targetId,
+                                     const std::vector<std::string> &newLines,
+                                     bool &found)
+{
+    std::vector<std::string> result;
+    bool inserted = false;
+    found = false;
+
+    for (const std::string &line : lines)
+    {
+        const std::vector<std::string> tokens = split(line);
+        if (!tokens.empty() && tokens[0] == targetId)
+        {
+            found = true;
+            if (!inserted)
+            {
+                result.insert(result.end(), newLines.begin(), newLines.end());
+                inserted = true;
+            }
+            continue;
+        }
+        result.push_back(line);
+    }
+
+    if (!inserted)
+    {
+        result.insert(result.end(), newLines.begin(), newLines.end());
+    }
+
+    return result;
+}
+
+// Writes `lines` to `tempPath` and flushes it. Does not touch the real file.
+bool writeTempFile(const std::string &tempPath,
+                   const std::vector<std::string> &lines)
+{
+    std::ofstream out(tempPath, std::ios::trunc);
+    if (!out.is_open())
+    {
+        return false;
+    }
+
+    for (const std::string &line : lines)
+    {
+        out << line << '\n';
+    }
+
+    out.flush();
+    const bool ok = out.good();
+    out.close();
+    return ok;
+}
+
+// Atomically swaps the finished temp file over the real one.
+// std::filesystem::rename replaces an existing target on POSIX and Windows.
+bool commitTempFile(const std::string &tempPath, const std::string &path)
+{
+    std::error_code error;
+    std::filesystem::rename(tempPath, path, error);
+    if (error)
+    {
+        std::filesystem::remove(tempPath, error);
+        return false;
+    }
+    return true;
+}
+
+void discardTempFile(const std::string &tempPath)
+{
+    std::error_code error;
+    std::filesystem::remove(tempPath, error);
 }
 
 } // namespace
@@ -534,48 +651,6 @@ bool OrderManager::findOrder(const std::string &orderId,
     return false;
 }
 
-// Helper to replace or remove records by orderId using a crash-safe temp file
-bool replaceFileLines(const std::string &filePath, const std::string &targetOrderId, const std::vector<std::string> &newLines)
-{
-    std::ifstream inFile(filePath);
-    if (!inFile.is_open())
-    {
-        return false;
-    }
-
-    std::string tempPath = filePath + ".tmp";
-    std::ofstream outFile(tempPath);
-    if (!outFile.is_open())
-    {
-        inFile.close();
-        return false;
-    }
-
-    std::string line;
-    while (std::getline(inFile, line))
-    {
-        const std::vector<std::string> tokens = split(line);
-        if (!tokens.empty() && tokens[0] == targetOrderId)
-        {
-            // Skip target order lines (we will write the new ones instead)
-            continue;
-        }
-        outFile << line << "\n";
-    }
-
-    // Append new lines for this order if any exist
-    for (const std::string &newLine : newLines)
-    {
-        outFile << newLine << "\n";
-    }
-
-    inFile.close();
-    outFile.close();
-
-    std::remove(filePath.c_str());
-    return std::rename(tempPath.c_str(), filePath.c_str()) == 0;
-}
-
 bool OrderManager::updateOrderTransaction(
     const Order &order,
     const std::vector<OrderDetail> &details,
@@ -587,34 +662,61 @@ bool OrderManager::updateOrderTransaction(
         return false;
     }
 
-    // Format updated order line
-    std::ostringstream orderLineStream;
-    orderLineStream << order.orderId << ' ' << order.date << ' ' << order.time << ' '
-                    << sanitize(order.customerName) << ' '
-                    << sanitize(order.contact) << ' ' << order.status << ' '
-                    << formatNumber(order.paymentAmount) << ' '
-                    << order.paymentMode << ' ' << sanitize(order.merchant)
-                    << " #";
-
-    // Format updated detail lines
+    // Read everything first: nothing is modified if either file is unusable.
+    std::vector<std::string> orderLines;
     std::vector<std::string> detailLines;
-    for (const OrderDetail &detail : details)
-    {
-        std::ostringstream detailStream;
-        detailStream << detail.orderId << ' ' << detail.productId << ' '
-                     << detail.productBarcode << ' '
-                     << formatNumber(detail.quantity) << " #";
-        detailLines.push_back(detailStream.str());
-    }
-
-    // Perform crash-safe updates on both files
-    if (!replaceFileLines(orderFilePath, order.orderId, {orderLineStream.str()}))
+    if (!readLines(orderFilePath, orderLines) ||
+        !readLines(detailFilePath, detailLines))
     {
         return false;
     }
 
-    if (!replaceFileLines(detailFilePath, order.orderId, detailLines))
+    std::vector<std::string> newDetailLines;
+    for (const OrderDetail &detail : details)
     {
+        newDetailLines.push_back(formatDetailLine(detail));
+    }
+
+    bool orderFound = false;
+    bool detailsFound = false;
+    const std::vector<std::string> newOrderContent = replaceRows(
+        orderLines, order.orderId, {formatOrderLine(order)}, orderFound);
+    if (!orderFound)
+    {
+        return false; // unknown order id: updates never create orders
+    }
+    const std::vector<std::string> newDetailContent = replaceRows(
+        detailLines, order.orderId, newDetailLines, detailsFound);
+
+    // Stage both new files completely before replacing either original.
+    const std::string orderTemp = orderFilePath + ".tmp";
+    const std::string detailTemp = detailFilePath + ".tmp";
+
+    if (!writeTempFile(orderTemp, newOrderContent) ||
+        !writeTempFile(detailTemp, newDetailContent))
+    {
+        discardTempFile(orderTemp);
+        discardTempFile(detailTemp);
+        return false;
+    }
+
+    if (!commitTempFile(detailTemp, detailFilePath))
+    {
+        discardTempFile(orderTemp);
+        return false;
+    }
+
+    if (!commitTempFile(orderTemp, orderFilePath))
+    {
+        // Put the original detail rows back so the two files still agree.
+        if (writeTempFile(detailTemp, detailLines))
+        {
+            commitTempFile(detailTemp, detailFilePath);
+        }
+        else
+        {
+            discardTempFile(detailTemp);
+        }
         return false;
     }
 
