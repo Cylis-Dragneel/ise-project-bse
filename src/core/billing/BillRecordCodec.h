@@ -6,27 +6,51 @@
 
 #include "Bill.h"
 
-// Text form of one Bill.txt line (increment 3, one line per bill):
-//
-//   billId customerName orderId totalNoTax totalTax totalDiscount totalPayable
-//   amountReceived balanceReturned paymentStatus seasonalDiscount
-//   specialDiscount billDate billTime #
-//
-// Kept separate from the repository so the format can be tested without
-// touching the disk.
+// ============================================================================
+// INCREMENT 2 CODEC (Preserved)
+// ============================================================================
 class BillRecordCodec
 {
 public:
-    // Parses ONE record. A trailing '#' is optional, so the output of format()
-    // can be parsed directly. Throws std::invalid_argument.
-    static Bill parse(const std::string& record);
-
-    // Always ends with '#'.
-    static std::string format(const Bill& bill);
-
-    // Splits a whole file into records (text before each '#'). Throws if the
-    // last record has no '#' marker.
+    static BillLine parse(const std::string& record);
+    static std::string format(const BillLine& line);
     static std::vector<std::string> splitRecords(const std::string& content);
 };
+
+// ============================================================================
+// INCREMENT 3 CODECS (14-field Bill.txt & 5-field BillDetail.txt)
+// ============================================================================
+namespace inc3 {
+
+class BillHeaderCodec
+{
+public:
+    // Sanitizes customer name: replaces whitespace with '_', returns "-" if empty.
+    static std::string sanitizeCustomerName(const std::string& rawName);
+
+    // Formats all 14 space-separated fields followed by " #".
+    static std::string format(const BillHeader& bill);
+
+    // Parses one record (trailing '#' optional). Throws std::invalid_argument on error.
+    static BillHeader parse(const std::string& record);
+
+    // Splits file content into '#'-terminated records. Throws if final record lacks '#'.
+    static std::vector<std::string> splitRecords(const std::string& content);
+};
+
+class BillDetailCodec
+{
+public:
+    // Formats all 5 space-separated fields followed by " #".
+    static std::string format(const BillDetailLine& line);
+
+    // Parses one record (trailing '#' optional). Throws std::invalid_argument on error.
+    static BillDetailLine parse(const std::string& record);
+
+    // Splits file content into '#'-terminated records. Throws if final record lacks '#'.
+    static std::vector<std::string> splitRecords(const std::string& content);
+};
+
+} // namespace inc3
 
 #endif // BILL_RECORD_CODEC_H
