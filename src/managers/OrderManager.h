@@ -33,6 +33,22 @@ public:
     static bool findOrder(const std::string& orderId,
                           Order& result,
                           const std::string& orderFilePath = "Order.txt");
+
+    // Replaces an EXISTING order row and all of its detail rows in place
+    // (file order is preserved). Returns false for an invalid order, an
+    // unknown order id, or an unreadable file; in every failure case both
+    // files are left as they were. Both new files are staged as .tmp files
+    // before either original is replaced.
+    static bool updateOrderTransaction(
+        const Order &order,
+        const std::vector<OrderDetail> &details,
+        const std::string &orderFilePath = "Order.txt",
+        const std::string &detailFilePath = "OrderDetail.txt");
+
+    // Overload loadOrders to support status filtering
+    static std::vector<Order> loadOrders(
+        const std::string &statusFilter,
+        const std::string &orderFilePath);
 };
 
 #endif

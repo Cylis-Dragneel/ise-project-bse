@@ -31,6 +31,7 @@ file(GLOB_RECURSE CORE_SRC CONFIGURE_DEPENDS
     src/decoder/*.h
     src/decoder/*.cpp
     src/models/*.h
+    src/models/*.cpp
     src/managers/*.h
     src/managers/*.cpp
 )
