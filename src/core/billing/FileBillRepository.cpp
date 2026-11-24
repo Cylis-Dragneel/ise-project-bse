@@ -71,22 +71,18 @@ void atomicWriteAll(const string& filePath, const vector<string>& formattedLines
 
 } // namespace
 
-// ============================================================================
-// INCREMENT 2 IMPLEMENTATION
-// ============================================================================
-
 FileBillRepository::FileBillRepository(const string& filePath)
     : filePath_(filePath)
 {
 }
 
-vector<BillLine> FileBillRepository::loadAll()
+vector<Bill> FileBillRepository::loadAll()
 {
     bool exists = false;
     const string content = readWholeFile(filePath_, exists);
     if (!exists)
     {
-        return vector<BillLine>();
+        return vector<Bill>();
     }
 
     vector<string> records;
@@ -99,102 +95,13 @@ vector<BillLine> FileBillRepository::loadAll()
         throw std::invalid_argument(filePath_ + ": " + error.what());
     }
 
-    vector<BillLine> lines;
-    for (std::size_t i = 0; i < records.size(); ++i)
-    {
-        try
-        {
-            lines.push_back(BillRecordCodec::parse(records[i]));
-        }
-        catch (const std::invalid_argument& error)
-        {
-            throw std::invalid_argument(filePath_ + ", record " + std::to_string(i + 1) +
-                                        ": " + error.what());
-        }
-    }
-
-    return lines;
-}
-
-void FileBillRepository::append(const vector<BillLine>& lines)
-{
-    if (lines.empty())
-    {
-        return;
-    }
-
-    bool needsNewline = false;
-    {
-        std::ifstream input(filePath_.c_str(), std::ios::binary | std::ios::ate);
-        if (input && input.tellg() > 0)
-        {
-            input.seekg(-1, std::ios::end);
-            char last = '\0';
-            input.get(last);
-            needsNewline = (last != '\n');
-        }
-    }
-
-    std::ofstream output(filePath_.c_str(), std::ios::app);
-    if (!output)
-    {
-        throw std::runtime_error("cannot open bill file for appending: " + filePath_);
-    }
-
-    if (needsNewline)
-    {
-        output << '\n';
-    }
-
-    for (const BillLine& line : lines)
-    {
-        output << BillRecordCodec::format(line) << "\n";
-    }
-
-    output.flush();
-    if (!output)
-    {
-        throw std::runtime_error("error while writing bill file: " + filePath_);
-    }
-}
-
-// ============================================================================
-// INCREMENT 3 IMPLEMENTATION
-// ============================================================================
-
-namespace inc3 {
-
-FileBillHeaderRepository::FileBillHeaderRepository(const string& filePath)
-    : filePath_(filePath)
-{
-}
-
-vector<BillHeader> FileBillHeaderRepository::loadAll()
-{
-    bool exists = false;
-    const string content = readWholeFile(filePath_, exists);
-    if (!exists)
-    {
-        return vector<BillHeader>();
-    }
-
-    vector<string> records;
-    try
-    {
-        records = BillHeaderCodec::splitRecords(content);
-    }
-    catch (const std::invalid_argument& error)
-    {
-        throw std::invalid_argument(filePath_ + ": " + error.what());
-    }
-
-    vector<BillHeader> bills;
+    vector<Bill> bills;
     std::unordered_set<string> seenIds;
     for (std::size_t i = 0; i < records.size(); ++i)
     {
         try
         {
-            BillHeader bill = BillHeaderCodec::parse(records[i]);
+            Bill bill = BillRecordCodec::parse(records[i]);
             if (!seenIds.insert(bill.billId).second)
             {
                 throw std::invalid_argument("duplicate bill id '" + bill.billId + "'");
@@ -210,28 +117,28 @@ vector<BillHeader> FileBillHeaderRepository::loadAll()
     return bills;
 }
 
-void FileBillHeaderRepository::saveAll(const vector<BillHeader>& bills)
+void FileBillRepository::saveAll(const vector<Bill>& bills)
 {
     std::unordered_set<string> seenIds;
     vector<string> formatted;
     formatted.reserve(bills.size());
 
-    for (const BillHeader& bill : bills)
+    for (const Bill& bill : bills)
     {
         if (!seenIds.insert(bill.billId).second)
         {
             throw std::invalid_argument("duplicate bill id on save: '" + bill.billId + "'");
         }
-        formatted.push_back(BillHeaderCodec::format(bill));
+        formatted.push_back(BillRecordCodec::format(bill));
     }
 
     atomicWriteAll(filePath_, formatted);
 }
 
-void FileBillHeaderRepository::append(const BillHeader& bill)
+void FileBillRepository::append(const Bill& bill)
 {
-    vector<BillHeader> existing = loadAll();
-    for (const BillHeader& item : existing)
+    vector<Bill> existing = loadAll();
+    for (const Bill& item : existing)
     {
         if (item.billId == bill.billId)
         {
@@ -247,31 +154,31 @@ FileBillDetailRepository::FileBillDetailRepository(const string& filePath)
 {
 }
 
-vector<BillDetailLine> FileBillDetailRepository::loadAll()
+vector<BillLine> FileBillDetailRepository::loadAll()
 {
     bool exists = false;
     const string content = readWholeFile(filePath_, exists);
     if (!exists)
     {
-        return vector<BillDetailLine>();
+        return vector<BillLine>();
     }
 
     vector<string> records;
     try
     {
-        records = BillDetailCodec::splitRecords(content);
+        records = BillDetailRecordCodec::splitRecords(content);
     }
     catch (const std::invalid_argument& error)
     {
         throw std::invalid_argument(filePath_ + ": " + error.what());
     }
 
-    vector<BillDetailLine> lines;
+    vector<BillLine> lines;
     for (std::size_t i = 0; i < records.size(); ++i)
     {
         try
         {
-            lines.push_back(BillDetailCodec::parse(records[i]));
+            lines.push_back(BillDetailRecordCodec::parse(records[i]));
         }
         catch (const std::invalid_argument& error)
         {
@@ -282,26 +189,24 @@ vector<BillDetailLine> FileBillDetailRepository::loadAll()
     return lines;
 }
 
-void FileBillDetailRepository::saveAll(const vector<BillDetailLine>& lines)
+void FileBillDetailRepository::saveAll(const vector<BillLine>& lines)
 {
     vector<string> formatted;
     formatted.reserve(lines.size());
-    for (const BillDetailLine& line : lines)
+    for (const BillLine& line : lines)
     {
-        formatted.push_back(BillDetailCodec::format(line));
+        formatted.push_back(BillDetailRecordCodec::format(line));
     }
     atomicWriteAll(filePath_, formatted);
 }
 
-void FileBillDetailRepository::append(const vector<BillDetailLine>& lines)
+void FileBillDetailRepository::append(const vector<BillLine>& lines)
 {
     if (lines.empty())
     {
         return;
     }
-    vector<BillDetailLine> existing = loadAll();
+    vector<BillLine> existing = loadAll();
     existing.insert(existing.end(), lines.begin(), lines.end());
     saveAll(existing);
 }
-
-} // namespace inc3

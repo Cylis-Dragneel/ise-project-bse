@@ -20,10 +20,11 @@
 
 namespace {
 
-const char *billPath = "test_billing_tmp.txt";
-const char *orderPath = "test_billing_order_tmp.txt";
-const char *detailPath = "test_billing_detail_tmp.txt";
-const char *productPath = "test_billing_product_tmp.txt";
+const char *billPath = "test_inc3_bill_tmp.txt";
+const char *detailPath = "test_inc3_detail_tmp.txt";
+const char *orderPath = "test_inc3_order_tmp.txt";
+const char *orderDetailPath = "test_inc3_order_detail_tmp.txt";
+const char *productPath = "test_inc3_product_tmp.txt";
 
 std::string fixturePath(const char *name)
 {
@@ -44,11 +45,12 @@ void writeFile(const std::string &path, const std::string &content)
     file << content;
 }
 
-void removeFiles()
+void removeAllTempFiles()
 {
     std::remove(billPath);
-    std::remove(orderPath);
     std::remove(detailPath);
+    std::remove(orderPath);
+    std::remove(orderDetailPath);
     std::remove(productPath);
 }
 
@@ -63,17 +65,18 @@ struct CatalogFixture
     ProductCatalog catalog;
 };
 
-Order makeOrder(const std::string &orderId = "00011118",
+Order makeOrder(const std::string &orderId = "00011124",
+                const std::string &date = "2026-11-24",
                 const std::string &status = "paid")
 {
     Order order;
     order.orderId = orderId;
-    order.date = "2026-11-18";
-    order.time = "19:30:00";
+    order.date = date;
+    order.time = "11:45:00";
     order.customerName = "Ali Khan";
     order.contact = "0300 1234567";
     order.status = status;
-    order.paymentAmount = 2292.5;
+    order.paymentAmount = 820.0;
     order.paymentMode = "card";
     order.merchant = "Jazz Cash";
     return order;
@@ -90,15 +93,6 @@ OrderDetail makeDetail(const std::string &orderId, int productId,
     return detail;
 }
 
-std::vector<OrderDetail> makeThreeItemCart(const std::string &orderId = "00011118")
-{
-    std::vector<OrderDetail> details;
-    details.push_back(makeDetail(orderId, 1, "428647", 2.0));   // Milk
-    details.push_back(makeDetail(orderId, 3, "579158", 1.5));   // Sugar (weight)
-    details.push_back(makeDetail(orderId, 2, "358306", 1.0));   // Rice
-    return details;
-}
-
 void checkClose(double actual, double expected)
 {
     if (std::fabs(actual - expected) > 1e-9)
@@ -109,22 +103,29 @@ void checkClose(double actual, double expected)
     }
 }
 
-BillLine makeLine(const std::string &billId = "000000001",
-                  const std::string &orderId = "00011118")
+class FixedSeasonProvider : public ISeasonProvider
 {
-    BillLine line;
-    line.billId = billId;
-    line.orderId = orderId;
-    line.productId = 1;
-    line.productBarcode = "428647";
-    line.quantity = 2;
-    line.unitPrice = 280;
-    line.taxPerUnit = 14;
-    line.discountPerUnit = 10;
-    line.paymentStatus = "paid";
-    line.lineTotal = BillCalculator::lineTotal(line);
-    return line;
-}
+private:
+    double percent_;
+
+public:
+    explicit FixedSeasonProvider(double percent) : percent_(percent) {}
+    double activePercent(const std::string &) const override { return percent_; }
+};
+
+class FailingBillRepository : public IBillRepository
+{
+public:
+    std::vector<Bill> loadAll() override { return {}; }
+    void saveAll(const std::vector<Bill> &) override
+    {
+        throw std::runtime_error("simulated Bill.txt write failure");
+    }
+    void append(const Bill &) override
+    {
+        throw std::runtime_error("simulated Bill.txt append failure");
+    }
+};
 
 } // namespace
 
@@ -135,485 +136,32 @@ TEST_CASE(bill_calculator_rounds_money_to_two_decimals)
     checkClose(BillCalculator::roundMoney(0.005), 0.01);
     checkClose(BillCalculator::roundMoney(0.0), 0.0);
     checkClose(BillCalculator::roundMoney(1500.0), 1500.0);
-
-    // No "-0" in printed output.
     CHECK_EQ(BillCalculator::roundMoney(-0.001), 0.0);
-
     CHECK_THROWS_AS(BillCalculator::roundMoney(std::nan("")), std::invalid_argument);
-}
-
-TEST_CASE(bill_calculator_computes_a_multi_item_bill)
-{
-    Bill bill;
-    bill.billId = "000000001";
-    bill.orderId = "00011118";
-    bill.paymentStatus = "paid";
-    bill.lines.push_back(makeLine());
-    bill.lines.push_back(makeLine());
-    bill.lines[1].quantity = 1;
-    bill.lines[1].unitPrice = 1450;
-    bill.lines[1].taxPerUnit = 72.5;
-    bill.lines[1].discountPerUnit = 50;
-
-    BillCalculator::calculate(bill);
-
-    // Milk: 280*2 = 560, tax 28, discount 20 -> 568.
-    checkClose(bill.lines[0].lineTotal, 568.0);
-    // Rice: 1450, tax 72.5, discount 50 -> 1472.5.
-    checkClose(bill.lines[1].lineTotal, 1472.5);
-
-    checkClose(bill.totalNoTax, 2010.0);
-    checkClose(bill.totalTax, 100.5);
-    checkClose(bill.totalDiscount, 70.0);
-    checkClose(bill.totalPayable, 2040.5);
-
-    // The bill total is exactly the sum of the printed line totals.
-    checkClose(bill.totalPayable, bill.lines[0].lineTotal + bill.lines[1].lineTotal);
-}
-
-TEST_CASE(bill_calculator_handles_fractional_weight_quantities)
-{
-    BillLine sugar;
-    sugar.billId = "000000001";
-    sugar.orderId = "00011118";
-    sugar.productId = 3;
-    sugar.productBarcode = "579158";
-    sugar.quantity = 4.5;
-    sugar.unitPrice = 160;
-    sugar.taxPerUnit = 8;
-    sugar.discountPerUnit = 0;
-    sugar.paymentStatus = "paid";
-
-    checkClose(BillCalculator::lineSubtotal(sugar), 720.0);
-    checkClose(BillCalculator::lineTax(sugar), 36.0);
-    checkClose(BillCalculator::lineDiscount(sugar), 0.0);
-    checkClose(BillCalculator::lineTotal(sugar), 756.0);
-}
-
-TEST_CASE(bill_calculator_groups_lines_into_bills)
-{
-    BillLine first = makeLine("000000001");
-    BillLine second = makeLine("000000002");
-    BillLine third = makeLine("000000001");
-    third.quantity = 1;
-
-    const std::vector<Bill> bills =
-        BillCalculator::group({first, second, third});
-
-    CHECK_EQ(bills.size(), static_cast<std::size_t>(2));
-    CHECK_EQ(bills[0].billId, std::string("000000001"));
-    CHECK_EQ(bills[0].lines.size(), static_cast<std::size_t>(2));
-    CHECK_EQ(bills[1].billId, std::string("000000002"));
-    CHECK_EQ(bills[1].lines.size(), static_cast<std::size_t>(1));
-    checkClose(bills[0].totalPayable, 568.0 + 284.0);
-    checkClose(bills[1].totalPayable, 568.0);
 }
 
 TEST_CASE(bill_id_starts_at_one_and_increments)
 {
     CHECK_EQ(BillCalculator::nextBillId({}), std::string("000000001"));
 
-    std::vector<BillLine> existing;
-    existing.push_back(makeLine("000000001"));
-    existing.push_back(makeLine("000000002"));
-    existing.push_back(makeLine("000000002"));
-    CHECK_EQ(BillCalculator::nextBillId(existing), std::string("000000003"));
+    Bill b1;
+    b1.billId = "000000001";
+    Bill b2;
+    b2.billId = "000000002";
+    CHECK_EQ(BillCalculator::nextBillId({b1, b2}), std::string("000000003"));
 
-    existing.clear();
-    existing.push_back(makeLine("000000042"));
-    CHECK_EQ(BillCalculator::nextBillId(existing), std::string("000000043"));
+    Bill bMax;
+    bMax.billId = "999999999";
+    CHECK_THROWS_AS(BillCalculator::nextBillId({bMax}), std::overflow_error);
 
-    existing.clear();
-    existing.push_back(makeLine("999999999"));
-    CHECK_THROWS_AS(BillCalculator::nextBillId(existing), std::overflow_error);
-
-    existing.clear();
-    existing.push_back(makeLine("42"));
-    CHECK_THROWS_AS(BillCalculator::nextBillId(existing), std::invalid_argument);
+    Bill bBad;
+    bBad.billId = "42";
+    CHECK_THROWS_AS(BillCalculator::nextBillId({bBad}), std::invalid_argument);
 }
 
-TEST_CASE(bill_record_round_trips)
+TEST_CASE(bill_header_record_round_trips)
 {
-    const BillLine original = makeLine();
-    const std::string record = BillRecordCodec::format(original);
-
-    CHECK(!record.empty());
-    CHECK_EQ(record.back(), '#');
-
-    const BillLine parsed = BillRecordCodec::parse(record);
-    CHECK_EQ(parsed.billId, original.billId);
-    CHECK_EQ(parsed.orderId, original.orderId);
-    CHECK_EQ(parsed.productId, original.productId);
-    CHECK_EQ(parsed.productBarcode, original.productBarcode);
-    checkClose(parsed.quantity, original.quantity);
-    checkClose(parsed.unitPrice, original.unitPrice);
-    checkClose(parsed.taxPerUnit, original.taxPerUnit);
-    checkClose(parsed.discountPerUnit, original.discountPerUnit);
-    checkClose(parsed.lineTotal, original.lineTotal);
-    CHECK_EQ(parsed.paymentStatus, original.paymentStatus);
-
-    // parse() also accepts the bare form without '#'.
-    const BillLine bare = BillRecordCodec::parse(record.substr(0, record.size() - 1));
-    CHECK_EQ(bare.billId, original.billId);
-}
-
-TEST_CASE(bill_record_rejects_malformed_records)
-{
-    const std::string good = BillRecordCodec::format(makeLine());
-
-    // Wrong field count.
-    CHECK_THROWS_AS(BillRecordCodec::parse("000000001 00011118 1 428647 2 280 14 10 568#"),
-                    std::invalid_argument);
-
-    // Bad bill id.
-    CHECK_THROWS_AS(
-        BillRecordCodec::parse("00000001 00011118 1 428647 2 280 14 10 568 paid#"),
-        std::invalid_argument);
-
-    // Bad order id.
-    CHECK_THROWS_AS(
-        BillRecordCodec::parse("000000001 1118 1 428647 2 280 14 10 568 paid#"),
-        std::invalid_argument);
-
-    // Barcode with a leading zero.
-    CHECK_THROWS_AS(
-        BillRecordCodec::parse("000000001 00011118 1 028647 2 280 14 10 568 paid#"),
-        std::invalid_argument);
-
-    // Zero quantity.
-    CHECK_THROWS_AS(
-        BillRecordCodec::parse("000000001 00011118 1 428647 0 280 14 10 0 paid#"),
-        std::invalid_argument);
-
-    // Negative money (the format does not allow a sign).
-    CHECK_THROWS_AS(
-        BillRecordCodec::parse("000000001 00011118 1 428647 2 -280 14 10 568 paid#"),
-        std::invalid_argument);
-
-    // Unknown payment status.
-    CHECK_THROWS_AS(
-        BillRecordCodec::parse("000000001 00011118 1 428647 2 280 14 10 568 refunded#"),
-        std::invalid_argument);
-
-    // A record without the '#' marker at the end of the file.
-    CHECK_THROWS_AS(BillRecordCodec::splitRecords(good.substr(0, good.size() - 1)),
-                    std::invalid_argument);
-}
-
-TEST_CASE(file_bill_repository_round_trips)
-{
-    std::remove(billPath);
-
-    FileBillRepository repository(billPath);
-    CHECK(repository.loadAll().empty());
-
-    BillLine first = makeLine("000000001");
-    BillLine second = makeLine("000000001");
-    second.productId = 3;
-    second.productBarcode = "579158";
-    second.quantity = 1.5;
-    second.unitPrice = 160;
-    second.taxPerUnit = 8;
-    second.discountPerUnit = 0;
-    second.lineTotal = BillCalculator::lineTotal(second);
-
-    repository.append({first, second});
-
-    const std::vector<BillLine> loaded = repository.loadAll();
-    CHECK_EQ(loaded.size(), static_cast<std::size_t>(2));
-    CHECK_EQ(loaded[0].billId, std::string("000000001"));
-    CHECK_EQ(loaded[1].productBarcode, std::string("579158"));
-    checkClose(loaded[1].lineTotal, 252.0);
-
-    const std::string content = readFile(billPath);
-    CHECK(content.find('#') != std::string::npos);
-    CHECK_EQ(content.back(), '\n');
-
-    // Every record is terminated by '#'.
-    std::size_t markers = 0;
-    for (char character : content)
-    {
-        if (character == '#')
-        {
-            ++markers;
-        }
-    }
-    CHECK_EQ(markers, static_cast<std::size_t>(2));
-
-    std::remove(billPath);
-}
-
-TEST_CASE(billing_service_quotes_without_writing)
-{
-    std::remove(billPath);
-
-    CatalogFixture fixture;
-    auto repository = std::make_shared<FileBillRepository>(billPath);
-    BillingService service(fixture.catalog, repository);
-
-    const Bill quote = service.quote(makeOrder(), makeThreeItemCart());
-
-    CHECK(quote.billId.empty());
-    CHECK_EQ(quote.orderId, std::string("00011118"));
-    CHECK_EQ(quote.lines.size(), static_cast<std::size_t>(3));
-    checkClose(quote.totalPayable, 2292.5);
-
-    // A quote is not a bill: nothing is written and no id is consumed.
-    CHECK(repository->loadAll().empty());
-    std::remove(billPath);
-}
-
-TEST_CASE(billing_service_generates_a_multi_item_bill)
-{
-    std::remove(billPath);
-
-    CatalogFixture fixture;
-    auto repository = std::make_shared<FileBillRepository>(billPath);
-    BillingService service(fixture.catalog, repository);
-
-    const Order order = makeOrder();
-    const Bill bill = service.generateBill(order, makeThreeItemCart());
-
-    CHECK_EQ(bill.billId, std::string("000000001"));
-    CHECK_EQ(bill.orderId, std::string("00011118"));
-    CHECK_EQ(bill.paymentStatus, std::string("paid"));
-    CHECK_EQ(bill.lines.size(), static_cast<std::size_t>(3));
-
-    checkClose(bill.totalNoTax, 2250.0);
-    checkClose(bill.totalTax, 112.5);
-    checkClose(bill.totalDiscount, 70.0);
-    checkClose(bill.totalPayable, 2292.5);
-
-    // The catalog is the source of truth for the line data.
-    CHECK_EQ(bill.lines[0].billId, std::string("000000001"));
-    CHECK_EQ(bill.lines[0].productId, 1);
-    CHECK_EQ(bill.lines[0].productBarcode, std::string("428647"));
-    checkClose(bill.lines[0].unitPrice, 280.0);
-
-    const std::vector<Bill> stored = service.loadBills();
-    CHECK_EQ(stored.size(), static_cast<std::size_t>(1));
-    CHECK_EQ(stored[0].lines.size(), static_cast<std::size_t>(3));
-    checkClose(stored[0].totalPayable, 2292.5);
-
-    std::remove(billPath);
-}
-
-TEST_CASE(billing_service_rejects_unknown_barcodes)
-{
-    std::remove(billPath);
-
-    CatalogFixture fixture;
-    auto repository = std::make_shared<FileBillRepository>(billPath);
-    BillingService service(fixture.catalog, repository);
-
-    const Order order = makeOrder();
-    std::vector<OrderDetail> details;
-    details.push_back(makeDetail(order.orderId, 99, "111111", 1.0));
-
-    CHECK_THROWS_AS(service.generateBill(order, details), std::invalid_argument);
-
-    // Nothing was written.
-    CHECK(repository->loadAll().empty());
-    std::remove(billPath);
-}
-
-TEST_CASE(billing_service_rejects_short_stock)
-{
-    std::remove(billPath);
-
-    CatalogFixture fixture;
-    auto repository = std::make_shared<FileBillRepository>(billPath);
-    BillingService service(fixture.catalog, repository);
-
-    const Order order = makeOrder();
-
-    // Soap has no stock at all.
-    std::vector<OrderDetail> outOfStock;
-    outOfStock.push_back(makeDetail(order.orderId, 5, "381093", 1.0));
-    CHECK_THROWS_AS(service.generateBill(order, outOfStock), std::out_of_range);
-
-    // Each row is fine on its own, but together they exceed the stock of 50.
-    std::vector<OrderDetail> tooMany;
-    tooMany.push_back(makeDetail(order.orderId, 1, "428647", 30.0));
-    tooMany.push_back(makeDetail(order.orderId, 1, "428647", 30.0));
-    CHECK_THROWS_AS(service.generateBill(order, tooMany), std::out_of_range);
-
-    // Exactly the available amount is allowed (team rule: <=).
-    std::vector<OrderDetail> exact;
-    exact.push_back(makeDetail(order.orderId, 1, "428647", 50.0));
-    const Bill bill = service.generateBill(order, exact);
-    checkClose(bill.totalPayable, 50.0 * (280 + 14 - 10));
-
-    std::remove(billPath);
-}
-
-TEST_CASE(billing_service_loads_detail_rows_from_file)
-{
-    removeFiles();
-
-    // Copy the catalog fixture so the whole path uses temp files.
-    writeFile(productPath, readFile(fixturePath("Product.txt")));
-
-    ProductCatalog catalog(
-        std::make_shared<FileProductRepository>(productPath));
-    catalog.load();
-
-    writeFile(detailPath,
-              "00011118 1 428647 2 #\n"
-              "00011118 3 579158 1.5 #\n");
-
-    auto repository = std::make_shared<FileBillRepository>(billPath);
-    BillingService service(catalog, repository, detailPath);
-
-    const Bill bill = service.generateBill(makeOrder());
-
-    CHECK_EQ(bill.lines.size(), static_cast<std::size_t>(2));
-    checkClose(bill.totalPayable, 568.0 + 252.0);
-    CHECK_EQ(repository->loadAll().size(), static_cast<std::size_t>(2));
-
-    removeFiles();
-}
-
-TEST_CASE(billing_service_generates_sequential_bill_ids)
-{
-    std::remove(billPath);
-
-    CatalogFixture fixture;
-    auto repository = std::make_shared<FileBillRepository>(billPath);
-    BillingService service(fixture.catalog, repository);
-
-    const Order firstOrder = makeOrder("00011118");
-    const Bill first = service.generateBill(firstOrder, makeThreeItemCart("00011118"));
-    CHECK_EQ(first.billId, std::string("000000001"));
-
-    const Order secondOrder = makeOrder("00021118");
-    std::vector<OrderDetail> details;
-    details.push_back(makeDetail("00021118", 1, "428647", 1.0));
-    const Bill second = service.generateBill(secondOrder, details);
-    CHECK_EQ(second.billId, std::string("000000002"));
-
-    CHECK_EQ(service.loadBills().size(), static_cast<std::size_t>(2));
-    std::remove(billPath);
-}
-
-TEST_CASE(billing_end_to_end_writes_order_and_bill_files)
-{
-    removeFiles();
-
-    // A complete temp data set: Product.txt, Order.txt, OrderDetail.txt, Bill.txt.
-    writeFile(productPath, readFile(fixturePath("Product.txt")));
-
-    ProductCatalog catalog(
-        std::make_shared<FileProductRepository>(productPath));
-    catalog.load();
-
-    const Order order = makeOrder();
-    const std::vector<OrderDetail> details = makeThreeItemCart();
-
-    CHECK(OrderManager::saveOrderTransaction(order, details, orderPath, detailPath));
-
-    // The order and its rows can be read back before billing.
-    const std::vector<Order> orders = OrderManager::loadOrders(orderPath);
-    CHECK_EQ(orders.size(), static_cast<std::size_t>(1));
-    CHECK_EQ(orders[0].orderId, order.orderId);
-    CHECK_EQ(orders[0].status, std::string("paid"));
-    CHECK_EQ(OrderManager::loadOrderDetails(order.orderId, detailPath).size(),
-             static_cast<std::size_t>(3));
-
-    auto repository = std::make_shared<FileBillRepository>(billPath);
-    BillingService service(catalog, repository, detailPath);
-    const Bill bill = service.generateBill(order);
-
-    checkClose(bill.totalNoTax, 2250.0);
-    checkClose(bill.totalTax, 112.5);
-    checkClose(bill.totalDiscount, 70.0);
-    checkClose(bill.totalPayable, 2292.5);
-
-    // Bill.txt has one '#'-terminated record per item and the agreed field order.
-    const std::string billContent = readFile(billPath);
-    CHECK(!billContent.empty());
-
-    std::size_t lineCount = 0;
-    std::istringstream billLines(billContent);
-    std::string line;
-    while (std::getline(billLines, line))
-    {
-        if (line.empty())
-        {
-            continue;
-        }
-
-        ++lineCount;
-        CHECK_EQ(line.back(), '#');
-
-        std::istringstream fields(line);
-        std::string billId, orderId, productId, barcode, quantity,
-            unitPrice, tax, discount, total, status, marker;
-        fields >> billId >> orderId >> productId >> barcode >> quantity >>
-            unitPrice >> tax >> discount >> total >> status >> marker;
-
-        CHECK_EQ(billId, std::string("000000001"));
-        CHECK_EQ(orderId, std::string("00011118"));
-        CHECK_EQ(status, std::string("paid"));
-        CHECK_EQ(marker, std::string("#"));
-    }
-    CHECK_EQ(lineCount, static_cast<std::size_t>(3));
-
-    // Reloading groups the rows back into one bill with the same totals.
-    const std::vector<Bill> reloaded = service.loadBills();
-    CHECK_EQ(reloaded.size(), static_cast<std::size_t>(1));
-    CHECK_EQ(reloaded[0].billId, bill.billId);
-    CHECK_EQ(reloaded[0].lines.size(), static_cast<std::size_t>(3));
-    checkClose(reloaded[0].totalPayable, bill.totalPayable);
-
-    removeFiles();
-}
-
-
-// ============================================================================
-// INCREMENT 3 BILLING TEST CASES (R7-R9, R15)
-// ============================================================================
-
-namespace {
-
-const char *inc3BillPath = "test_inc3_bill_tmp.txt";
-const char *inc3DetailPath = "test_inc3_bill_detail_tmp.txt";
-
-void removeInc3Files()
-{
-    std::remove(inc3BillPath);
-    std::remove(inc3DetailPath);
-}
-
-class FixedSeasonProvider : public inc3::ISeasonProvider
-{
-private:
-    double percent_;
-
-public:
-    explicit FixedSeasonProvider(double percent) : percent_(percent) {}
-    double activePercent(const std::string &) const override { return percent_; }
-};
-
-class FailingBillHeaderRepository : public inc3::IBillHeaderRepository
-{
-public:
-    std::vector<inc3::BillHeader> loadAll() override { return {}; }
-    void saveAll(const std::vector<inc3::BillHeader> &) override
-    {
-        throw std::runtime_error("simulated Bill.txt write failure");
-    }
-    void append(const inc3::BillHeader &) override
-    {
-        throw std::runtime_error("simulated Bill.txt append failure");
-    }
-};
-
-} // namespace
-
-TEST_CASE(inc3_bill_header_and_detail_round_trip)
-{
-    inc3::BillHeader header;
+    Bill header;
     header.billId = "000000001";
     header.customerName = "Ali Khan";
     header.orderId = "00011124";
@@ -629,61 +177,158 @@ TEST_CASE(inc3_bill_header_and_detail_round_trip)
     header.billDate = "2026-11-24";
     header.billTime = "11:45:00";
 
-    const std::string encodedHeader = inc3::BillHeaderCodec::format(header);
-    CHECK_EQ(encodedHeader.back(), '#');
+    const std::string encoded = BillRecordCodec::format(header);
+    CHECK(!encoded.empty());
+    CHECK_EQ(encoded.back(), '#');
 
-    const inc3::BillHeader parsedHeader = inc3::BillHeaderCodec::parse(encodedHeader);
-    CHECK_EQ(parsedHeader.billId, std::string("000000001"));
-    CHECK_EQ(parsedHeader.customerName, std::string("Ali_Khan"));
-    CHECK_EQ(parsedHeader.orderId, std::string("00011124"));
-    checkClose(parsedHeader.totalPayable, 820.0);
-    checkClose(parsedHeader.balanceReturned, 180.0);
+    const Bill parsed = BillRecordCodec::parse(encoded);
+    CHECK_EQ(parsed.billId, std::string("000000001"));
+    CHECK_EQ(parsed.customerName, std::string("Ali_Khan"));
+    CHECK_EQ(parsed.orderId, std::string("00011124"));
+    checkClose(parsed.totalNoTax, 800.0);
+    checkClose(parsed.totalTax, 40.0);
+    checkClose(parsed.totalDiscount, 20.0);
+    checkClose(parsed.totalPayable, 820.0);
+    checkClose(parsed.amountReceived, 1000.0);
+    checkClose(parsed.balanceReturned, 180.0);
+    CHECK_EQ(parsed.paymentStatus, std::string("paid"));
+    checkClose(parsed.seasonalDiscount, 0.0);
+    checkClose(parsed.specialDiscountPercent, 0.0);
+    CHECK_EQ(parsed.billDate, std::string("2026-11-24"));
+    CHECK_EQ(parsed.billTime, std::string("11:45:00"));
 
-    // Empty customer name sanitizes to "-"
     header.customerName = "   ";
-    CHECK_EQ(inc3::BillHeaderCodec::parse(inc3::BillHeaderCodec::format(header)).customerName,
+    CHECK_EQ(BillRecordCodec::parse(BillRecordCodec::format(header)).customerName,
              std::string("-"));
-
-    inc3::BillDetailLine detail;
-    detail.billId = "000000001";
-    detail.productAcronym = "MILK1L";
-    detail.unitPrice = 280.0;
-    detail.quantity = 2.0;
-    detail.discountTotal = 20.0;
-
-    const std::string encodedDetail = inc3::BillDetailCodec::format(detail);
-    CHECK_EQ(encodedDetail.back(), '#');
-    const inc3::BillDetailLine parsedDetail = inc3::BillDetailCodec::parse(encodedDetail);
-    CHECK_EQ(parsedDetail.billId, std::string("000000001"));
-    CHECK_EQ(parsedDetail.productAcronym, std::string("MILK1L"));
-    checkClose(parsedDetail.discountTotal, 20.0);
 }
 
-TEST_CASE(inc3_billing_seasonal_and_special_discounts_and_rounding)
+TEST_CASE(bill_header_record_rejects_malformed_records)
 {
-    removeInc3Files();
+    const std::string good = BillRecordCodec::format([]() {
+        Bill b;
+        b.billId = "000000001";
+        b.customerName = "Ali";
+        b.orderId = "00011124";
+        b.totalPayable = 100.0;
+        b.amountReceived = 100.0;
+        b.paymentStatus = "paid";
+        b.billDate = "2026-11-24";
+        b.billTime = "11:45:00";
+        return b;
+    }());
+
+    CHECK_THROWS_AS(BillRecordCodec::parse("000000001 Ali 00011124 100 0 0 100 paid #"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(
+        BillRecordCodec::parse("00000001 Ali 00011124 100 0 0 100 100 0 paid 0 0 2026-11-24 11:45:00#"),
+        std::invalid_argument);
+    CHECK_THROWS_AS(
+        BillRecordCodec::parse("000000001 Ali 1124 100 0 0 100 100 0 paid 0 0 2026-11-24 11:45:00#"),
+        std::invalid_argument);
+    CHECK_THROWS_AS(
+        BillRecordCodec::parse("000000001 Ali 00011124 100 0 0 100 100 0 refunded 0 0 2026-11-24 11:45:00#"),
+        std::invalid_argument);
+    CHECK_THROWS_AS(
+        BillRecordCodec::parse("000000001 Ali 00011124 100 0 0 100 100 0 paid 0 9 2026-11-24 11:45:00#"),
+        std::invalid_argument);
+    CHECK_THROWS_AS(BillRecordCodec::splitRecords(good.substr(0, good.size() - 1)),
+                    std::invalid_argument);
+}
+
+TEST_CASE(bill_detail_record_round_trips)
+{
+    BillLine line;
+    line.billId = "000000001";
+    line.productAcronym = "MILK1L";
+    line.unitPrice = 280.0;
+    line.quantity = 2.0;
+    line.discountTotal = 20.0;
+
+    const std::string encoded = BillDetailRecordCodec::format(line);
+    CHECK(!encoded.empty());
+    CHECK_EQ(encoded.back(), '#');
+
+    const BillLine parsed = BillDetailRecordCodec::parse(encoded);
+    CHECK_EQ(parsed.billId, std::string("000000001"));
+    CHECK_EQ(parsed.productAcronym, std::string("MILK1L"));
+    checkClose(parsed.unitPrice, 280.0);
+    checkClose(parsed.quantity, 2.0);
+    checkClose(parsed.discountTotal, 20.0);
+
+    const BillLine bare = BillDetailRecordCodec::parse(encoded.substr(0, encoded.size() - 1));
+    CHECK_EQ(bare.productAcronym, std::string("MILK1L"));
+}
+
+TEST_CASE(bill_detail_record_rejects_malformed_records)
+{
+    const std::string good = BillDetailRecordCodec::format([]() {
+        BillLine l;
+        l.billId = "000000001";
+        l.productAcronym = "MILK1L";
+        l.unitPrice = 280.0;
+        l.quantity = 2.0;
+        l.discountTotal = 20.0;
+        return l;
+    }());
+
+    CHECK_THROWS_AS(BillDetailRecordCodec::parse("000000001 MILK1L 280 2#"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(BillDetailRecordCodec::parse("000001 MILK1L 280 2 20#"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(BillDetailRecordCodec::parse("000000001 TOOLONGACRONYM 280 2 20#"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(BillDetailRecordCodec::parse("000000001 MILK1L 280 0 0#"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(BillDetailRecordCodec::parse("000000001 MILK1L 280 2 -5#"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(BillDetailRecordCodec::splitRecords(good.substr(0, good.size() - 1)),
+                    std::invalid_argument);
+}
+
+TEST_CASE(billing_service_quotes_without_writing_and_without_enforcing_payment)
+{
+    removeAllTempFiles();
 
     CatalogFixture fixture;
-    auto headerRepo = std::make_shared<inc3::FileBillHeaderRepository>(inc3BillPath);
-    auto detailRepo = std::make_shared<inc3::FileBillDetailRepository>(inc3DetailPath);
-    auto season10 = std::make_shared<FixedSeasonProvider>(10.0); // 10% active season
+    auto billRepo = std::make_shared<FileBillRepository>(billPath);
+    auto detailRepo = std::make_shared<FileBillDetailRepository>(detailPath);
+    BillingService service(fixture.catalog, billRepo, detailRepo);
 
-    inc3::BillingService service(fixture.catalog, headerRepo, detailRepo, season10);
+    const Order order = makeOrder("00011124", "2026-11-24", "paid");
+    std::vector<OrderDetail> cart = {makeDetail("00011124", 1, "428647", 1.0)};
 
-    // Cart: Milk (280, tax 14, disc 10) x 2 + Sugar (160, tax 8, disc 0) x 1.5
-    // totalNoTax = 560 + 240 = 800
-    // totalTax   = 28 + 12 = 40
-    // totalDisc  = 20 + 0  = 20
-    // base = 800 + 40 - 20 = 820
-    // seasonal (10% of 820) = 82.00 -> afterSeasonal = 738.00
-    // special  (5% of 738)  = 36.90 -> totalPayable = 820 - 82 - 36.90 = 701.10
+    // Quote with amountReceived = 0 should succeed for preview even if order is "paid"
+    const Bill preview = service.quote(order, cart, 0.0, 0.0, "2026-11-24", "12:00:00");
+    CHECK(preview.billId.empty());
+    checkClose(preview.totalPayable, 284.0);
+    CHECK(billRepo->loadAll().empty());
+    CHECK(detailRepo->loadAll().empty());
+
+    removeAllTempFiles();
+}
+
+TEST_CASE(billing_service_seasonal_and_special_discounts_and_rounding)
+{
+    removeAllTempFiles();
+
+    CatalogFixture fixture;
+    auto billRepo = std::make_shared<FileBillRepository>(billPath);
+    auto detailRepo = std::make_shared<FileBillDetailRepository>(detailPath);
+    auto season10 = std::make_shared<FixedSeasonProvider>(10.0);
+
+    BillingService service(fixture.catalog, billRepo, detailRepo, season10);
+
+    // Milk (280, tax 14, disc 10) x 2 + Sugar (160, tax 8, disc 0) x 1.5
+    // totalNoTax = 800, totalTax = 40, totalDiscount = 20 -> base = 820
+    // seasonal (10%) = 82.00 -> afterSeasonal = 738.00
+    // special (5%) = 36.90 -> totalPayable = 701.10
     std::vector<OrderDetail> cart = {
         makeDetail("00011124", 1, "428647", 2.0),
         makeDetail("00011124", 3, "579158", 1.5)
     };
 
-    const Order order = makeOrder("00011124", "paid");
-    const inc3::BillHeader bill = service.generateBill(order, cart, 5.0, 1000.0, "2026-11-24", "12:00:00");
+    const Order order = makeOrder("00011124", "2026-11-24", "paid");
+    const Bill bill = service.generateBill(order, cart, 5.0, 1000.0, "2026-11-24", "12:00:00");
 
     CHECK_EQ(bill.billId, std::string("000000001"));
     CHECK_EQ(bill.customerName, std::string("Ali_Khan"));
@@ -696,83 +341,130 @@ TEST_CASE(inc3_billing_seasonal_and_special_discounts_and_rounding)
     checkClose(bill.amountReceived, 1000.0);
     checkClose(bill.balanceReturned, 298.90);
 
-    // Special discount > 8% must be rejected
+    // Special discount > 8% rejected
     CHECK_THROWS_AS(service.generateBill(order, cart, 8.5, 1000.0, "2026-11-24", "12:05:00"),
                     std::invalid_argument);
 
-    // Amount received < totalPayable on paid bill must be rejected
+    // Amount received < totalPayable on paid bill rejected
     CHECK_THROWS_AS(service.generateBill(order, cart, 0.0, 500.0, "2026-11-24", "12:10:00"),
                     std::invalid_argument);
 
-    removeInc3Files();
+    removeAllTempFiles();
 }
 
-TEST_CASE(inc3_billing_duplicate_id_and_rollback_on_header_failure)
+TEST_CASE(billing_service_rejects_duplicate_bill_ids)
 {
-    removeInc3Files();
+    removeAllTempFiles();
 
     CatalogFixture fixture;
-    auto headerRepo = std::make_shared<inc3::FileBillHeaderRepository>(inc3BillPath);
-    auto detailRepo = std::make_shared<inc3::FileBillDetailRepository>(inc3DetailPath);
+    auto billRepo = std::make_shared<FileBillRepository>(billPath);
+    auto detailRepo = std::make_shared<FileBillDetailRepository>(detailPath);
+    BillingService service(fixture.catalog, billRepo, detailRepo);
 
-    inc3::BillingService service(fixture.catalog, headerRepo, detailRepo);
-    const Order order = makeOrder("00011124", "paid");
+    const Order order = makeOrder("00011124", "2026-11-24", "paid");
     std::vector<OrderDetail> cart = {makeDetail("00011124", 1, "428647", 1.0)};
 
-    const inc3::BillHeader first = service.generateBill(order, cart, 0.0, 500.0, "2026-11-24", "13:00:00");
-    CHECK_EQ(first.billId, std::string("000000001"));
+    const Bill first = service.generateBill(order, cart, 0.0, 500.0, "2026-11-24", "13:00:00");
+    CHECK_THROWS_AS(billRepo->append(first), std::invalid_argument);
 
-    // Duplicate billId rejected on append
-    CHECK_THROWS_AS(headerRepo->append(first), std::invalid_argument);
+    writeFile(billPath,
+              BillRecordCodec::format(first) + "\n" +
+              BillRecordCodec::format(first) + "\n");
+    CHECK_THROWS_AS(billRepo->loadAll(), std::invalid_argument);
 
-    // Failure path: if Bill.txt append fails, BillDetail.txt is restored to previous state (1 row)
-    auto failingHeaderRepo = std::make_shared<FailingBillHeaderRepository>();
-    inc3::BillingService failingService(fixture.catalog, failingHeaderRepo, detailRepo);
+    removeAllTempFiles();
+}
 
+TEST_CASE(billing_service_rolls_back_details_when_header_write_fails)
+{
+    removeAllTempFiles();
+
+    CatalogFixture fixture;
+    auto realBillRepo = std::make_shared<FileBillRepository>(billPath);
+    auto detailRepo = std::make_shared<FileBillDetailRepository>(detailPath);
+    BillingService okService(fixture.catalog, realBillRepo, detailRepo);
+
+    const Order order = makeOrder("00011124", "2026-11-24", "paid");
+    std::vector<OrderDetail> cart = {makeDetail("00011124", 1, "428647", 1.0)};
+    okService.generateBill(order, cart, 0.0, 500.0, "2026-11-24", "13:00:00");
+    CHECK_EQ(detailRepo->loadAll().size(), static_cast<std::size_t>(1));
+
+    auto failingBillRepo = std::make_shared<FailingBillRepository>();
+    BillingService failingService(fixture.catalog, failingBillRepo, detailRepo);
     CHECK_THROWS_AS(failingService.generateBill(order, cart, 0.0, 500.0, "2026-11-24", "13:05:00"),
                     std::runtime_error);
     CHECK_EQ(detailRepo->loadAll().size(), static_cast<std::size_t>(1));
 
-    removeInc3Files();
+    removeAllTempFiles();
 }
 
-TEST_CASE(inc3_billing_joined_load_and_in_place_rebill_on_edit)
+TEST_CASE(billing_service_replaces_a_bill_in_place_and_rejects_orphan_details)
 {
-    removeInc3Files();
+    removeAllTempFiles();
 
     CatalogFixture fixture;
-    auto headerRepo = std::make_shared<inc3::FileBillHeaderRepository>(inc3BillPath);
-    auto detailRepo = std::make_shared<inc3::FileBillDetailRepository>(inc3DetailPath);
+    auto billRepo = std::make_shared<FileBillRepository>(billPath);
+    auto detailRepo = std::make_shared<FileBillDetailRepository>(detailPath);
+    BillingService service(fixture.catalog, billRepo, detailRepo);
 
-    inc3::BillingService service(fixture.catalog, headerRepo, detailRepo);
-    const Order order = makeOrder("00011124", "paid");
+    const Order order = makeOrder("00011124", "2026-11-24", "paid");
     std::vector<OrderDetail> cart = {
         makeDetail("00011124", 1, "428647", 2.0),
         makeDetail("00011124", 3, "579158", 1.0)
     };
 
-    const inc3::BillHeader original = service.generateBill(order, cart, 0.0, 1000.0, "2026-11-24", "14:00:00");
+    const Bill original = service.generateBill(order, cart, 0.0, 1000.0, "2026-11-24", "14:00:00");
     CHECK_EQ(original.billId, std::string("000000001"));
 
-    const std::vector<inc3::BillHeader> loaded = service.loadBills();
-    CHECK_EQ(loaded.size(), static_cast<std::size_t>(1));
-    CHECK_EQ(loaded[0].lines.size(), static_cast<std::size_t>(2));
-    CHECK_EQ(loaded[0].lines[0].productAcronym, std::string("MILK1L"));
-
-    // Edit paid order: reduce to 1 item, update bill in place with same billId
     std::vector<OrderDetail> editedCart = {makeDetail("00011124", 1, "428647", 1.0)};
-    const inc3::BillHeader updated =
+    const Bill updated =
         service.updateExistingBill("000000001", order, editedCart, 0.0, 500.0, "2026-11-24", "14:30:00");
 
     CHECK_EQ(updated.billId, std::string("000000001"));
     checkClose(updated.totalPayable, 284.0);
     checkClose(updated.balanceReturned, 216.0);
+    CHECK_EQ(updated.billTime, std::string("14:30:00"));
 
-    inc3::BillHeader found;
+    Bill found;
     CHECK(service.findBillByOrderId("00011124", found));
-    CHECK_EQ(found.billId, std::string("000000001"));
     CHECK_EQ(found.lines.size(), static_cast<std::size_t>(1));
-    CHECK_EQ(found.billTime, std::string("14:30:00"));
 
-    removeInc3Files();
+    // Orphan detail row whose billId is not in Bill.txt must be rejected on loadBills()
+    writeFile(detailPath,
+              readFile(detailPath) + "999999999 MILK1L 280 1 10 #\n");
+    CHECK_THROWS_AS(service.loadBills(), std::invalid_argument);
+
+    removeAllTempFiles();
+}
+
+TEST_CASE(billing_end_to_end_with_order_detail_file)
+{
+    removeAllTempFiles();
+
+    writeFile(productPath, readFile(fixturePath("Product.txt")));
+    ProductCatalog catalog(std::make_shared<FileProductRepository>(productPath));
+    catalog.load();
+
+    const Order order = makeOrder("00011124", "2026-11-24", "paid");
+    const std::vector<OrderDetail> details = {
+        makeDetail("00011124", 1, "428647", 2.0),
+        makeDetail("00011124", 3, "579158", 1.5)
+    };
+
+    CHECK(OrderManager::saveOrderTransaction(order, details, orderPath, orderDetailPath));
+
+    auto billRepo = std::make_shared<FileBillRepository>(billPath);
+    auto detailRepo = std::make_shared<FileBillDetailRepository>(detailPath);
+    BillingService service(catalog, billRepo, detailRepo, nullptr, orderDetailPath);
+
+    const Bill bill = service.generateBill(order, 0.0, 1000.0, "2026-11-24", "15:00:00");
+    CHECK_EQ(bill.billId, std::string("000000001"));
+    checkClose(bill.totalPayable, 820.0);
+    checkClose(bill.balanceReturned, 180.0);
+
+    const std::vector<Bill> loaded = service.loadBills();
+    CHECK_EQ(loaded.size(), static_cast<std::size_t>(1));
+    CHECK_EQ(loaded[0].lines.size(), static_cast<std::size_t>(2));
+
+    removeAllTempFiles();
 }

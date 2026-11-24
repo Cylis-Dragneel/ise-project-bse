@@ -7,7 +7,6 @@
 #include <cmath>
 #include <cstddef>
 #include <iomanip>
-#include <map>
 #include <sstream>
 #include <stdexcept>
 
@@ -49,10 +48,6 @@ long long billIdValue(const string& billId)
 
 } // namespace
 
-// ============================================================================
-// INCREMENT 2 IMPLEMENTATION
-// ============================================================================
-
 double BillCalculator::roundMoney(double value)
 {
     if (!std::isfinite(value))
@@ -63,143 +58,10 @@ double BillCalculator::roundMoney(double value)
     return rounded == 0.0 ? 0.0 : rounded;
 }
 
-double BillCalculator::lineSubtotal(const BillLine& line)
-{
-    return roundMoney(line.unitPrice * line.quantity);
-}
-
-double BillCalculator::lineTax(const BillLine& line)
-{
-    return roundMoney(line.taxPerUnit * line.quantity);
-}
-
-double BillCalculator::lineDiscount(const BillLine& line)
-{
-    return roundMoney(line.discountPerUnit * line.quantity);
-}
-
-double BillCalculator::lineTotal(const BillLine& line)
-{
-    return roundMoney(lineSubtotal(line) + lineTax(line) - lineDiscount(line));
-}
-
-BillLine BillCalculator::makeLine(const string& billId,
-                                  const string& orderId,
-                                  const OrderDetail& detail,
-                                  const Product& product,
-                                  const string& paymentStatus)
-{
-    BillLine line;
-    line.billId = billId;
-    line.orderId = orderId;
-    line.productId = product.id();
-    line.productBarcode = product.barcode();
-    line.quantity = detail.quantity;
-    line.unitPrice = product.unitPrice();
-    line.taxPerUnit = product.taxAmount();
-    line.discountPerUnit = product.discountPerUnit();
-    line.paymentStatus = paymentStatus;
-    line.lineTotal = lineTotal(line);
-    return line;
-}
-
-void BillCalculator::calculate(Bill& bill)
-{
-    bill.totalNoTax = 0;
-    bill.totalTax = 0;
-    bill.totalDiscount = 0;
-    bill.totalPayable = 0;
-
-    for (BillLine& line : bill.lines)
-    {
-        line.lineTotal = lineTotal(line);
-        bill.totalNoTax += lineSubtotal(line);
-        bill.totalTax += lineTax(line);
-        bill.totalDiscount += lineDiscount(line);
-        bill.totalPayable += line.lineTotal;
-    }
-
-    bill.totalNoTax = roundMoney(bill.totalNoTax);
-    bill.totalTax = roundMoney(bill.totalTax);
-    bill.totalDiscount = roundMoney(bill.totalDiscount);
-    bill.totalPayable = roundMoney(bill.totalPayable);
-}
-
-vector<Bill> BillCalculator::group(const vector<BillLine>& lines)
-{
-    vector<Bill> bills;
-    std::map<string, std::size_t> indexById;
-
-    for (const BillLine& line : lines)
-    {
-        auto found = indexById.find(line.billId);
-        if (found == indexById.end())
-        {
-            Bill bill;
-            bill.billId = line.billId;
-            bill.orderId = line.orderId;
-            bill.paymentStatus = line.paymentStatus;
-            bill.lines.push_back(line);
-
-            indexById[line.billId] = bills.size();
-            bills.push_back(bill);
-        }
-        else
-        {
-            Bill& bill = bills[found->second];
-            if (bill.orderId != line.orderId)
-            {
-                throw std::invalid_argument("bill " + line.billId + " mixes order ids");
-            }
-            if (bill.paymentStatus != line.paymentStatus)
-            {
-                throw std::invalid_argument("bill " + line.billId + " mixes payment statuses");
-            }
-            bill.lines.push_back(line);
-        }
-    }
-
-    for (Bill& bill : bills)
-    {
-        calculate(bill);
-    }
-    return bills;
-}
-
-string BillCalculator::nextBillId(const vector<BillLine>& existing)
+string BillCalculator::nextBillId(const vector<Bill>& existing)
 {
     long long maxId = 0;
-    for (const BillLine& line : existing)
-    {
-        maxId = std::max(maxId, billIdValue(line.billId));
-    }
-
-    const long long maxAllowed = 999999999LL;
-    if (maxId >= maxAllowed)
-    {
-        throw std::overflow_error("bill id space exhausted");
-    }
-
-    std::ostringstream output;
-    output << std::setw(9) << std::setfill('0') << (maxId + 1);
-    return output.str();
-}
-
-// ============================================================================
-// INCREMENT 3 IMPLEMENTATION
-// ============================================================================
-
-namespace inc3 {
-
-double BillingCalculator::roundMoney(double value)
-{
-    return BillCalculator::roundMoney(value);
-}
-
-string BillingCalculator::nextBillId(const vector<BillHeader>& existing)
-{
-    long long maxId = 0;
-    for (const BillHeader& bill : existing)
+    for (const Bill& bill : existing)
     {
         maxId = std::max(maxId, billIdValue(bill.billId));
     }
@@ -215,25 +77,13 @@ string BillingCalculator::nextBillId(const vector<BillHeader>& existing)
     return output.str();
 }
 
-BillDetailLine BillingCalculator::makeDetailLine(const string& billId,
-                                                 const OrderDetail& detail,
-                                                 const Product& product)
-{
-    BillDetailLine line;
-    line.billId = billId;
-    line.productAcronym = product.acronym();
-    line.unitPrice = roundMoney(product.unitPrice());
-    line.quantity = detail.quantity;
-    line.discountTotal = roundMoney(product.discountPerUnit() * detail.quantity);
-    return line;
-}
-
-void BillingCalculator::calculate(BillHeader& bill,
-                                  const vector<OrderDetail>& details,
-                                  const vector<Product>& products,
-                                  double seasonDiscountPercent,
-                                  double specialDiscountPercent,
-                                  double amountReceived)
+void BillCalculator::calculate(Bill& bill,
+                                 const vector<OrderDetail>& details,
+                                 const vector<Product>& products,
+                                 double seasonDiscountPercent,
+                                 double specialDiscountPercent,
+                                 double amountReceived,
+                                 bool enforcePaymentReceived)
 {
     if (details.size() != products.size())
     {
@@ -272,7 +122,7 @@ void BillingCalculator::calculate(BillHeader& bill,
         sumTax = roundMoney(sumTax + lineTax);
         sumDiscount = roundMoney(sumDiscount + lineDisc);
 
-        BillDetailLine line;
+        BillLine line;
         line.billId = bill.billId;
         line.productAcronym = product.acronym();
         line.unitPrice = roundMoney(product.unitPrice());
@@ -319,7 +169,7 @@ void BillingCalculator::calculate(BillHeader& bill,
     const double balance = roundMoney(bill.amountReceived - bill.totalPayable);
     if (balance < 0.0)
     {
-        if (bill.paymentStatus == "paid")
+        if (enforcePaymentReceived && bill.paymentStatus == "paid")
         {
             throw std::invalid_argument("amount received is less than total payable");
         }
@@ -330,5 +180,3 @@ void BillingCalculator::calculate(BillHeader& bill,
         bill.balanceReturned = balance;
     }
 }
-
-} // namespace inc3

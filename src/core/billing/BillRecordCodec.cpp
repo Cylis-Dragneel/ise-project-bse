@@ -12,9 +12,8 @@ using std::vector;
 
 namespace {
 
-const std::size_t INC2_FIELD_COUNT = 10;
-const std::size_t INC3_HEADER_FIELD_COUNT = 14;
-const std::size_t INC3_DETAIL_FIELD_COUNT = 5;
+const std::size_t HEADER_FIELD_COUNT = 14;
+const std::size_t DETAIL_FIELD_COUNT = 5;
 
 bool isBlank(const string& text)
 {
@@ -65,31 +64,6 @@ bool isPlainNumber(const string& text, bool allowDot)
         }
     }
     return digit;
-}
-
-int parseProductId(const string& text)
-{
-    if (!isPlainNumber(text, false))
-    {
-        throw invalid_argument("invalid product id: '" + text + "'");
-    }
-    try
-    {
-        const int value = std::stoi(text);
-        if (value <= 0)
-        {
-            throw invalid_argument("product id must be positive: '" + text + "'");
-        }
-        return value;
-    }
-    catch (const std::invalid_argument&)
-    {
-        throw;
-    }
-    catch (const std::exception&)
-    {
-        throw invalid_argument("product id is too large: '" + text + "'");
-    }
 }
 
 double parseNonNegative(const string& text, const char* field)
@@ -200,83 +174,7 @@ bool isValidTimeFormat(const string& t)
 
 } // namespace
 
-// ============================================================================
-// INCREMENT 2 IMPLEMENTATION
-// ============================================================================
-
-vector<string> BillRecordCodec::splitRecords(const string& content)
-{
-    return splitHashRecords(content);
-}
-
-BillLine BillRecordCodec::parse(const string& recordIn)
-{
-    const vector<string> tokens = tokenizeRecord(recordIn);
-
-    if (tokens.size() != INC2_FIELD_COUNT)
-    {
-        throw invalid_argument("expected " + std::to_string(INC2_FIELD_COUNT) +
-                               " fields but found " + std::to_string(tokens.size()));
-    }
-
-    BillLine line;
-
-    if (tokens[0].size() != 9 || !isDigits(tokens[0]))
-    {
-        throw invalid_argument("bill id must be 9 digits: '" + tokens[0] + "'");
-    }
-    line.billId = tokens[0];
-
-    if (tokens[1].size() != 8 || !isDigits(tokens[1]) ||
-        tokens[1].substr(0, 4) == "0000")
-    {
-        throw invalid_argument("order id must be 8 digits: '" + tokens[1] + "'");
-    }
-    line.orderId = tokens[1];
-
-    line.productId = parseProductId(tokens[2]);
-
-    if (tokens[3].size() != 6 || !isDigits(tokens[3]) || tokens[3][0] == '0')
-    {
-        throw invalid_argument("product barcode must be 6 digits from 100000 to 999999: '" +
-                               tokens[3] + "'");
-    }
-    line.productBarcode = tokens[3];
-
-    line.quantity = parsePositive(tokens[4], "quantity");
-    line.unitPrice = parseNonNegative(tokens[5], "unit price");
-    line.taxPerUnit = parseNonNegative(tokens[6], "tax");
-    line.discountPerUnit = parseNonNegative(tokens[7], "discount");
-    line.lineTotal = parseNonNegative(tokens[8], "line total");
-
-    if (!isValidStatus(tokens[9]))
-    {
-        throw invalid_argument("invalid payment status: '" + tokens[9] + "'");
-    }
-    line.paymentStatus = tokens[9];
-
-    return line;
-}
-
-string BillRecordCodec::format(const BillLine& line)
-{
-    return line.billId + " " + line.orderId + " " +
-           std::to_string(line.productId) + " " + line.productBarcode + " " +
-           NumberFormat::general(line.quantity) + " " +
-           NumberFormat::general(line.unitPrice) + " " +
-           NumberFormat::general(line.taxPerUnit) + " " +
-           NumberFormat::general(line.discountPerUnit) + " " +
-           NumberFormat::general(line.lineTotal) + " " +
-           line.paymentStatus + " #";
-}
-
-// ============================================================================
-// INCREMENT 3 IMPLEMENTATION
-// ============================================================================
-
-namespace inc3 {
-
-string BillHeaderCodec::sanitizeCustomerName(const string& rawName)
+string BillRecordCodec::sanitizeCustomerName(const string& rawName)
 {
     const std::size_t first = rawName.find_first_not_of(" \t\r\n");
     if (first == string::npos)
@@ -299,12 +197,12 @@ string BillHeaderCodec::sanitizeCustomerName(const string& rawName)
     return clean;
 }
 
-vector<string> BillHeaderCodec::splitRecords(const string& content)
+vector<string> BillRecordCodec::splitRecords(const string& content)
 {
     return splitHashRecords(content);
 }
 
-string BillHeaderCodec::format(const BillHeader& bill)
+string BillRecordCodec::format(const Bill& bill)
 {
     return bill.billId + " " +
            sanitizeCustomerName(bill.customerName) + " " +
@@ -322,17 +220,17 @@ string BillHeaderCodec::format(const BillHeader& bill)
            bill.billTime + " #";
 }
 
-BillHeader BillHeaderCodec::parse(const string& recordIn)
+Bill BillRecordCodec::parse(const string& recordIn)
 {
     const vector<string> tokens = tokenizeRecord(recordIn);
 
-    if (tokens.size() != INC3_HEADER_FIELD_COUNT)
+    if (tokens.size() != HEADER_FIELD_COUNT)
     {
-        throw invalid_argument("expected " + std::to_string(INC3_HEADER_FIELD_COUNT) +
+        throw invalid_argument("expected " + std::to_string(HEADER_FIELD_COUNT) +
                                " fields in Bill.txt but found " + std::to_string(tokens.size()));
     }
 
-    BillHeader bill;
+    Bill bill;
 
     if (tokens[0].size() != 9 || !isDigits(tokens[0]))
     {
@@ -383,12 +281,12 @@ BillHeader BillHeaderCodec::parse(const string& recordIn)
     return bill;
 }
 
-vector<string> BillDetailCodec::splitRecords(const string& content)
+vector<string> BillDetailRecordCodec::splitRecords(const string& content)
 {
     return splitHashRecords(content);
 }
 
-string BillDetailCodec::format(const BillDetailLine& line)
+string BillDetailRecordCodec::format(const BillLine& line)
 {
     return line.billId + " " +
            line.productAcronym + " " +
@@ -397,17 +295,17 @@ string BillDetailCodec::format(const BillDetailLine& line)
            NumberFormat::general(line.discountTotal) + " #";
 }
 
-BillDetailLine BillDetailCodec::parse(const string& recordIn)
+BillLine BillDetailRecordCodec::parse(const string& recordIn)
 {
     const vector<string> tokens = tokenizeRecord(recordIn);
 
-    if (tokens.size() != INC3_DETAIL_FIELD_COUNT)
+    if (tokens.size() != DETAIL_FIELD_COUNT)
     {
-        throw invalid_argument("expected " + std::to_string(INC3_DETAIL_FIELD_COUNT) +
+        throw invalid_argument("expected " + std::to_string(DETAIL_FIELD_COUNT) +
                                " fields in BillDetail.txt but found " + std::to_string(tokens.size()));
     }
 
-    BillDetailLine line;
+    BillLine line;
 
     if (tokens[0].size() != 9 || !isDigits(tokens[0]))
     {
@@ -427,5 +325,3 @@ BillDetailLine BillDetailCodec::parse(const string& recordIn)
 
     return line;
 }
-
-} // namespace inc3

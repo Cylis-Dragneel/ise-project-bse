@@ -1,5 +1,7 @@
 #include "BillPdfWriter.h"
 
+#include "billing/BillCalculator.h"
+
 #include <QFont>
 #include <QMarginsF>
 #include <QPageLayout>
@@ -8,16 +10,14 @@
 #include <QPdfWriter>
 #include <QRect>
 
-namespace inc3 {
-
-QString BillPdfWriter::defaultFileName(const BillHeader& bill)
+QString BillPdfWriter::defaultFileName(const Bill& bill)
 {
     return QString("Bill_%1.pdf").arg(QString::fromStdString(bill.billId));
 }
 
-bool BillPdfWriter::writeBillPdf(const BillHeader& bill,
-                                 const QString& filePath,
-                                 QString* errorOut)
+bool BillPdfWriter::writeBillPdf(const Bill& bill,
+                               const QString& filePath,
+                               QString* errorOut)
 {
     if (filePath.trimmed().isEmpty())
     {
@@ -86,11 +86,11 @@ bool BillPdfWriter::writeBillPdf(const BillHeader& bill,
     painter.drawLine(0, y, pageWidth, y);
     y += 40;
 
-    // Historical reprints show line amounts without tax plus the bill's total tax.
     painter.setFont(monoFont);
-    for (const BillDetailLine& line : bill.lines)
+    for (const BillLine& line : bill.lines)
     {
-        const double lineNoTax = (line.unitPrice * line.quantity) - line.discountTotal;
+        const double lineNoTax =
+            BillCalculator::roundMoney((line.unitPrice * line.quantity) - line.discountTotal);
         painter.drawText(col1, y + 50, QString::fromStdString(line.productAcronym));
         painter.drawText(col2, y + 50, QString::number(line.unitPrice, 'f', 2));
         painter.drawText(col3, y + 50, QString::number(line.quantity, 'f', 2));
@@ -111,9 +111,12 @@ bool BillPdfWriter::writeBillPdf(const BillHeader& bill,
         y += 75;
     };
 
-    const double base = bill.totalNoTax + bill.totalTax - bill.totalDiscount;
+    const double base =
+        BillCalculator::roundMoney(bill.totalNoTax + bill.totalTax - bill.totalDiscount);
+    const double afterSeasonal =
+        BillCalculator::roundMoney(base - bill.seasonalDiscount);
     const double specialDiscountAmount =
-        (base - bill.seasonalDiscount) - bill.totalPayable;
+        BillCalculator::roundMoney(afterSeasonal * bill.specialDiscountPercent / 100.0);
 
     drawTotalRow("Total (excl. Tax):", bill.totalNoTax);
     drawTotalRow("Total Tax:", bill.totalTax);
@@ -137,5 +140,3 @@ bool BillPdfWriter::writeBillPdf(const BillHeader& bill,
     painter.end();
     return true;
 }
-
-} // namespace inc3
