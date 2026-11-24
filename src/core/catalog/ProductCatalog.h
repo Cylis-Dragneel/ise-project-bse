@@ -62,6 +62,7 @@ public:
     // Replaces the product that has the same id. The barcode and category are
     // expected to stay the same (history refers to them); the model itself does
     // not forbid a change.
+    void adjustStock(const std::vector<StockChange>& changes);
     void updateProduct(const Product& product);
     // Direct stock correction used by the inventory screen.
     void setStock(const std::string& barcode, double quantity);

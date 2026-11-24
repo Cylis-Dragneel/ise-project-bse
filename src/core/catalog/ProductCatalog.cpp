@@ -158,6 +158,41 @@ void ProductCatalog::addProduct(const Product& product)
     }
 }
 
+void ProductCatalog::adjustStock(
+    const std::vector<StockChange>& changes) {
+
+    if (changes.empty()) {
+        return;
+    }
+
+    std::vector<Product> next = products_;
+
+    for (const StockChange& change : changes) {
+
+        auto it = byBarcode_.find(change.barcode);
+
+        if (it == byBarcode_.end()) {
+            throw std::out_of_range(
+                "unknown product barcode: " +
+                change.barcode);
+        }
+
+        Product current = next[it->second];
+
+        if (change.delta > 0) {
+            current.addStock(change.delta);
+        }
+        else if (change.delta < 0) {
+            current.reduceStock(-change.delta);
+        }
+
+        next[it->second] = current;
+    }
+
+    commit(next);
+}
+
+
 void ProductCatalog::updateProduct(const Product& product)
 {
     auto found = indexById_.find(product.id());
