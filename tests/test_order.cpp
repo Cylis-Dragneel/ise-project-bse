@@ -1,9 +1,10 @@
-// Master Test Suite for Order Subsystem: OrderManager, OrderPolicy, and OrderService.
+// Test Suite for the Order subsystem: OrderManager, OrderPolicy, OrderService.
 #include "test_framework.h"
 
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <sstream>
 #include <string>
@@ -34,10 +35,17 @@ std::string readFile(const char *path)
     return contents.str();
 }
 
+// Fixtures are committed next to the sources so CI parses real files rather
+// than only strings built in the test itself.
+std::string fixturePath(const char *name)
+{
+    return std::string(QR_TEST_SOURCE_DIR) + "/tests/fixtures/" + name;
+}
+
 Order makeOrder()
 {
     Order order;
-    order.orderId = "00011118";
+    order.orderId = "00011118";       // Seq 0001 + MMDD (1118)
     order.date = "2026-11-18";
     order.time = "19:30:00";
     order.customerName = "Ali Khan";
@@ -77,14 +85,20 @@ struct Env {
     OrderPaths paths;
     Env(const std::string &name) {
         dir = fs::temp_directory_path() / ("orderMaster_" + name);
-        fs::remove_all(dir);
+        std::error_code ec;
+        fs::permissions(dir, fs::perms::owner_all, fs::perm_options::add, ec);
+        fs::remove_all(dir, ec);
         fs::create_directories(dir);
         paths.order = (dir / "Order.txt").string();
         paths.detail = (dir / "OrderDetail.txt").string();
         std::ofstream(paths.order).close();
         std::ofstream(paths.detail).close();
     }
-    ~Env() { fs::remove_all(dir); }
+    ~Env() {
+        std::error_code ec;
+        fs::permissions(dir, fs::perms::owner_all, fs::perm_options::add, ec);
+        fs::remove_all(dir, ec);
+    }
 };
 
 struct FakeStock : IStockAdjuster {
@@ -106,75 +120,399 @@ struct FakeStock : IStockAdjuster {
 
 } // namespace
 
-// ==========================================
 // 1. OrderManager & Basic Persistence Tests
-// ==========================================
-TEST_CASE(order_id_generation_master)
+TEST_CASE(order_id_uses_order_date_field_only)
 {
     removeTestFiles();
     {
         std::ofstream file(orderPath);
+        // The 1117 line contains "1118" in its contact field, so a whole-line
+        // substring search would count it. The 1118 line has a gap at
+        // sequence 3, so a count-based implementation would reuse 0003.
         file << "00011117 2026-11-17 10:00:00 C 1118 - in-progress 0 cash - #\n";
         file << "00031118 2026-11-18 10:00:00 C - - in-progress 0 cash - #\n";
     }
 
-    CHECK_EQ(OrderManager::generateOrderId("2026-11-18", orderPath), std::string("00041118"));
-    CHECK_EQ(OrderManager::generateOrderId("2026-11-19", orderPath), std::string("00011119"));
-    CHECK_EQ(OrderManager::generateOrderId("bad-date", orderPath), std::string(""));
+    CHECK_EQ(OrderManager::generateOrderId("2026-11-18", orderPath),
+             std::string("00041118"));
+    CHECK_EQ(OrderManager::generateOrderId("2026-11-19", orderPath),
+             std::string("00011119"));
+    CHECK_EQ(OrderManager::generateOrderId("bad-date", orderPath),
+             std::string(""));
 
     removeTestFiles();
 }
 
-TEST_CASE(transaction_writing_master)
+TEST_CASE(order_transaction_writes_exact_record_layout)
 {
     removeTestFiles();
     const Order order = makeOrder();
 
-    CHECK(OrderManager::saveOrderTransaction(order, makeDetails(), orderPath, detailPath));
+    CHECK(OrderManager::saveOrderTransaction(order, makeDetails(), orderPath,
+                                             detailPath));
 
     CHECK_EQ(readFile(orderPath),
-             std::string("00011118 2026-11-18 19:30:00 Ali_Khan 0300_1234567 paid 1250.5 card Jazz_Cash #\n"));
-    CHECK_EQ(readFile(detailPath), std::string("00011118 27 428647 4.5 #\n"));
+             std::string("00011118 2026-11-18 19:30:00 Ali_Khan "
+                         "0300_1234567 paid 1250.5 card Jazz_Cash #\n"));
+    CHECK_EQ(readFile(detailPath),
+             std::string("00011118 27 428647 4.5 #\n"));
 
     removeTestFiles();
 }
 
-TEST_CASE(optional_fields_master)
+TEST_CASE(optional_fields_are_written_as_hyphen)
 {
     removeTestFiles();
     Order order = makeOrder();
     order.contact.clear();
     order.merchant.clear();
 
-    CHECK(OrderManager::saveOrderTransaction(order, makeDetails(), orderPath, detailPath));
+    CHECK(OrderManager::saveOrderTransaction(order, makeDetails(), orderPath,
+                                             detailPath));
+
     CHECK_EQ(readFile(orderPath),
-             std::string("00011118 2026-11-18 19:30:00 Ali_Khan - paid 1250.5 card - #\n"));
+             std::string("00011118 2026-11-18 19:30:00 Ali_Khan - paid "
+                         "1250.5 card - #\n"));
 
     removeTestFiles();
 }
 
-TEST_CASE(invalid_records_rejected_master)
+TEST_CASE(invalid_order_and_detail_records_are_rejected)
 {
     removeTestFiles();
     Order order = makeOrder();
 
+    // Invalid status.
     order.status = "Incomplete";
-    CHECK(!OrderManager::saveOrderTransaction(order, makeDetails(), orderPath, detailPath));
+    CHECK(!OrderManager::saveOrderTransaction(order, makeDetails(), orderPath,
+                                              detailPath));
 
+    // Invalid payment mode.
     order = makeOrder();
     order.paymentMode = "Crypto";
-    CHECK(!OrderManager::saveOrderTransaction(order, makeDetails(), orderPath, detailPath));
+    CHECK(!OrderManager::saveOrderTransaction(order, makeDetails(), orderPath,
+                                              detailPath));
 
+    // Negative payment amount.
     order = makeOrder();
     order.paymentAmount = -5.0;
-    CHECK(!OrderManager::saveOrderTransaction(order, makeDetails(), orderPath, detailPath));
+    CHECK(!OrderManager::saveOrderTransaction(order, makeDetails(), orderPath,
+                                              detailPath));
+
+    // Order ID mismatch with details.
+    order = makeOrder();
+    std::vector<OrderDetail> details = makeDetails();
+    details[0].orderId = "99991118";
+    CHECK(!OrderManager::saveOrderTransaction(order, details, orderPath,
+                                              detailPath));
+
+    // Zero quantity.
+    details = makeDetails();
+    details[0].quantity = 0.0;
+    CHECK(!OrderManager::saveOrderTransaction(order, details, orderPath,
+                                              detailPath));
+
+    // Invalid barcode (leading zero).
+    details = makeDetails();
+    details[0].productBarcode = "012345";
+    CHECK(!OrderManager::saveOrderTransaction(order, details, orderPath,
+                                              detailPath));
+
+    // Invalid calendar date.
+    order = makeOrder();
+    order.date = "2026-13-45";
+    order.orderId = "00011345";
+    details = makeDetails();
+    details[0].orderId = "00011345";
+    CHECK(!OrderManager::saveOrderTransaction(order, details, orderPath,
+                                              detailPath));
+
+    // Invalid time.
+    order = makeOrder();
+    order.time = "25:00:00";
+    CHECK(!OrderManager::saveOrderTransaction(order, makeDetails(), orderPath,
+                                              detailPath));
+
+    CHECK_EQ(readFile(orderPath), std::string(""));
+    CHECK_EQ(readFile(detailPath), std::string(""));
 
     removeTestFiles();
 }
 
-// ==========================================
-// 2. OrderPolicy Tests
-// ==========================================
+TEST_CASE(saved_order_and_details_round_trip)
+{
+    removeTestFiles();
+
+    const Order order = makeOrder();
+    std::vector<OrderDetail> details = makeDetails();
+
+    OrderDetail second;
+    second.orderId = "00011118";
+    second.productId = 31;
+    second.productBarcode = "579158";
+    second.quantity = 2.25;
+    details.push_back(second);
+
+    CHECK(OrderManager::saveOrderTransaction(order, details, orderPath,
+                                             detailPath));
+
+    const std::vector<Order> orders = OrderManager::loadOrders(orderPath);
+    CHECK_EQ(orders.size(), static_cast<std::size_t>(1));
+    CHECK_EQ(orders[0].orderId, std::string("00011118"));
+    CHECK_EQ(orders[0].date, std::string("2026-11-18"));
+    CHECK_EQ(orders[0].time, std::string("19:30:00"));
+    CHECK_EQ(orders[0].customerName, std::string("Ali Khan"));
+    CHECK_EQ(orders[0].contact, std::string("0300 1234567"));
+    CHECK_EQ(orders[0].status, std::string("paid"));
+    CHECK(orders[0].paymentAmount == 1250.5);
+    CHECK_EQ(orders[0].paymentMode, std::string("card"));
+    CHECK_EQ(orders[0].merchant, std::string("Jazz Cash"));
+
+    const std::vector<OrderDetail> loaded =
+        OrderManager::loadOrderDetails("00011118", detailPath);
+    CHECK_EQ(loaded.size(), static_cast<std::size_t>(2));
+    CHECK_EQ(loaded[0].orderId, std::string("00011118"));
+    CHECK_EQ(loaded[0].productId, 27);
+    CHECK_EQ(loaded[0].productBarcode, std::string("428647"));
+    CHECK(loaded[0].quantity == 4.5);
+    CHECK_EQ(loaded[1].productId, 31);
+    CHECK_EQ(loaded[1].productBarcode, std::string("579158"));
+    CHECK(loaded[1].quantity == 2.25);
+
+    Order found;
+    CHECK(OrderManager::findOrder("00011118", found, orderPath));
+    CHECK_EQ(found.customerName, std::string("Ali Khan"));
+    CHECK(!OrderManager::findOrder("99999999", found, orderPath));
+
+    removeTestFiles();
+}
+
+TEST_CASE(newline_in_customer_name_does_not_corrupt_the_record)
+{
+    removeTestFiles();
+    Order order = makeOrder();
+    order.customerName = "Evil\nInjected";
+
+    CHECK(OrderManager::saveOrderTransaction(order, makeDetails(), orderPath,
+                                             detailPath));
+
+    const std::vector<Order> orders = OrderManager::loadOrders(orderPath);
+    CHECK_EQ(orders.size(), static_cast<std::size_t>(1));
+    CHECK_EQ(orders[0].customerName, std::string("Evil Injected"));
+
+    removeTestFiles();
+}
+
+TEST_CASE(duplicate_order_id_is_rejected)
+{
+    removeTestFiles();
+    const Order order = makeOrder();
+
+    CHECK(OrderManager::saveOrderTransaction(order, makeDetails(), orderPath,
+                                             detailPath));
+    CHECK(!OrderManager::saveOrderTransaction(order, makeDetails(), orderPath,
+                                              detailPath));
+    CHECK_EQ(OrderManager::loadOrders(orderPath).size(),
+             static_cast<std::size_t>(1));
+
+    removeTestFiles();
+}
+
+TEST_CASE(generate_order_id_returns_empty_when_sequence_is_full)
+{
+    removeTestFiles();
+    {
+        std::ofstream file(orderPath);
+        file << "99991118 2026-11-18 10:00:00 C - - in-progress 0 cash - #\n";
+    }
+
+    CHECK_EQ(OrderManager::generateOrderId("2026-11-18", orderPath),
+             std::string(""));
+
+    removeTestFiles();
+}
+
+TEST_CASE(malformed_order_lines_are_skipped_on_load)
+{
+    removeTestFiles();
+    {
+        std::ofstream file(orderPath);
+        file << "garbage\n";
+        file << "00011118 2026-11-18 19:30:00 Ali_Khan 0300_1234567 paid "
+                "1250.5 card Jazz_Cash #\n";
+        file << "00021118 2026-13-45 10:00:00 C - - paid 0 cash - #\n";
+        file << "00031118 2026-11-18 10:00:00 C - - unknown 0 cash - #\n";
+    }
+
+    CHECK_EQ(OrderManager::loadOrders(orderPath).size(),
+             static_cast<std::size_t>(1));
+
+    removeTestFiles();
+}
+
+TEST_CASE(malformed_detail_lines_are_skipped_on_load)
+{
+    removeTestFiles();
+    {
+        std::ofstream file(detailPath);
+        file << "00011118 27 428647 4.5 #\n";
+        file << "00011118 0 428647 4.5 #\n";
+        file << "00011118 27 012345 4.5 #\n";
+        file << "00011118 27 428647 0 #\n";
+        file << "00011118 27 428647 4.5\n";
+        file << "00021118 31 579158 2 #\n";
+    }
+
+    const std::vector<OrderDetail> details =
+        OrderManager::loadOrderDetails("00011118", detailPath);
+    CHECK_EQ(details.size(), static_cast<std::size_t>(1));
+    CHECK_EQ(details[0].productBarcode, std::string("428647"));
+    CHECK(details[0].quantity == 4.5);
+
+    removeTestFiles();
+}
+
+TEST_CASE(committed_order_fixtures_parse_and_round_trip)
+{
+    removeTestFiles();
+
+    const std::string orderFixture = fixturePath("Order.txt");
+    const std::string detailFixture = fixturePath("OrderDetail.txt");
+
+    const std::vector<Order> orders = OrderManager::loadOrders(orderFixture);
+    CHECK_EQ(orders.size(), static_cast<std::size_t>(3));
+
+    CHECK_EQ(orders[0].orderId, std::string("00011118"));
+    CHECK_EQ(orders[0].customerName, std::string("Ali Khan"));
+    CHECK_EQ(orders[0].status, std::string("paid"));
+    CHECK(orders[0].paymentAmount == 1250.5);
+
+    CHECK_EQ(orders[1].orderId, std::string("00021118"));
+    CHECK_EQ(orders[1].status, std::string("in-progress"));
+    CHECK_EQ(orders[1].customerName, std::string(""));
+
+    CHECK_EQ(orders[2].orderId, std::string("00011119"));
+    CHECK_EQ(orders[2].paymentMode, std::string("wallet"));
+
+    // Every committed row must survive a load/save round trip unchanged. A
+    // writer/reader format drift then fails CI instead of only the app.
+    for (const Order &order : orders)
+    {
+        const std::vector<OrderDetail> details =
+            OrderManager::loadOrderDetails(order.orderId, detailFixture);
+        CHECK(!details.empty());
+        CHECK(OrderManager::saveOrderTransaction(order, details, orderPath,
+                                                 detailPath));
+    }
+
+    CHECK_EQ(readFile(orderPath), readFile(orderFixture.c_str()));
+    CHECK_EQ(readFile(detailPath), readFile(detailFixture.c_str()));
+
+    removeTestFiles();
+}
+
+
+// 2. updateOrderTransaction Tests
+TEST_CASE(update_unknown_order_id_leaves_both_files_unchanged)
+{
+    removeTestFiles();
+
+    // Two real orders so "unchanged" means something.
+    Order first = makeOrder();
+    CHECK(OrderManager::saveOrderTransaction(first, makeDetails(), orderPath,
+                                             detailPath));
+
+    Order second = makeOrder();
+    second.orderId = "00021118";
+    second.status = "on-hold";
+    std::vector<OrderDetail> secondDetails =
+        std::vector<OrderDetail>(1, det("00021118", 31, "579158", 2));
+    CHECK(OrderManager::saveOrderTransaction(second, secondDetails, orderPath,
+                                             detailPath));
+
+    const std::string orderBefore = readFile(orderPath);
+    const std::string detailBefore = readFile(detailPath);
+
+    // A perfectly valid order whose id is simply not in the file.
+    Order ghost = makeOrder();
+    ghost.orderId = "00091118";
+    CHECK(!OrderManager::updateOrderTransaction(
+        ghost, std::vector<OrderDetail>(1, det("00091118", 27, "428647", 1)),
+        orderPath, detailPath));
+
+    CHECK_EQ(readFile(orderPath), orderBefore);
+    CHECK_EQ(readFile(detailPath), detailBefore);
+    CHECK(!fs::exists(std::string(orderPath) + ".tmp"));
+    CHECK(!fs::exists(std::string(detailPath) + ".tmp"));
+
+    removeTestFiles();
+}
+
+// The header (Order.txt) commit is the second rename. When it fails after the
+// detail file was already replaced, the detail file must be put back so the two
+// files still agree.
+//
+// The failure is produced without changing production code: Order.txt lives in
+// a read-only directory that already holds a writable Order.txt.tmp, so staging
+// the temp file succeeds but the rename into the directory is refused. Where
+// permissions are not enforced (running as root, Windows) the setup cannot
+// force the failure, so the test reports a skip instead of passing falsely.
+TEST_CASE(update_restores_detail_file_when_order_commit_fails)
+{
+    Env e("commitfail");
+
+    const fs::path orderDir = e.dir / "orders";
+    fs::create_directories(orderDir);
+    const std::string orderFile = (orderDir / "Order.txt").string();
+    const std::string detailFile = (e.dir / "OrderDetail.txt").string();
+
+    Order order = makeOrder();
+    CHECK(OrderManager::saveOrderTransaction(order, makeDetails(), orderFile,
+                                             detailFile));
+    const std::string orderBefore = readFile(orderFile.c_str());
+    const std::string detailBefore = readFile(detailFile.c_str());
+    CHECK(!orderBefore.empty() && !detailBefore.empty());
+
+    std::ofstream((orderDir / "Order.txt.tmp").string()).close();
+
+    std::error_code ec;
+    fs::permissions(orderDir,
+                    fs::perms::owner_read | fs::perms::owner_exec,
+                    fs::perm_options::replace, ec);
+
+    // Probe: can we still create files in the directory?
+    const fs::path probe = orderDir / "probe";
+    std::ofstream(probe.string()).close();
+    if (fs::exists(probe))
+    {
+        fs::remove(probe, ec);
+        fs::permissions(orderDir, fs::perms::owner_all,
+                        fs::perm_options::replace, ec);
+        std::cerr << "SKIPPED update_restores_detail_file_when_order_commit_"
+                     "fails: directory permissions are not enforced here "
+                     "(root or Windows)\n";
+        return;
+    }
+
+    // Changes both the header row and the detail rows, so a missing restore
+    // would leave a visibly different OrderDetail file behind.
+    Order changed = order;
+    changed.customerName = "Changed Name";
+    changed.paymentAmount = 99;
+    const bool updated = OrderManager::updateOrderTransaction(
+        changed, std::vector<OrderDetail>(1, det("00011118", 31, "579158", 9)),
+        orderFile, detailFile);
+
+    fs::permissions(orderDir, fs::perms::owner_all, fs::perm_options::replace,
+                    ec);
+
+    CHECK(!updated);
+    CHECK_EQ(readFile(orderFile.c_str()), orderBefore);
+    CHECK_EQ(readFile(detailFile.c_str()), detailBefore);
+    CHECK(!fs::exists(detailFile + ".tmp"));
+}
+
+// 3. OrderPolicy Tests
 TEST_CASE(policy_rules_master)
 {
     BillStamp none;
@@ -202,9 +540,8 @@ TEST_CASE(policy_rules_master)
     CHECK(!OrderPolicy::canTransition("paid", "on-hold"));
 }
 
-// ==========================================
-// 3. OrderService, Stock & Workflow Tests
-// ==========================================
+
+// 4. OrderService, Stock & Workflow Tests
 TEST_CASE(stock_deltas_master) {
     auto r = OrderService::reserveDeltas({det("x", 1, "428647", 2), det("x", 1, "428647", 1.5), det("x", 2, "571234", 1)});
     CHECK(r.size() == 2 && r[0].productId == 1 && r[0].delta == -3.5 && r[1].delta == -1);
