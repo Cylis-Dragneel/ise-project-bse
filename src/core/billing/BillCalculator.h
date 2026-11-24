@@ -16,6 +16,12 @@ public:
 
     static std::string nextBillId(const std::vector<Bill>& existing);
 
+    static BillLine makeLine(const std::string& billId,
+                             const OrderDetail& detail,
+                             const Product& product);
+
+    static void calculate(Bill& bill, double amountReceived);
+
     static void calculate(Bill& bill,
                           const std::vector<OrderDetail>& details,
                           const std::vector<Product>& products,

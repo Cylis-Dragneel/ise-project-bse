@@ -77,6 +77,53 @@ string BillCalculator::nextBillId(const vector<Bill>& existing)
     return output.str();
 }
 
+BillLine BillCalculator::makeLine(const string& billId,
+                                  const OrderDetail& detail,
+                                  const Product& product)
+{
+    BillLine line;
+    line.billId = billId;
+    line.productAcronym = product.acronym();
+    line.unitPrice = roundMoney(product.unitPrice());
+    line.quantity = detail.quantity;
+    line.discountTotal = roundMoney(product.discountPerUnit() * detail.quantity);
+    const double lineSub = roundMoney(product.unitPrice() * detail.quantity);
+    const double lineTax = roundMoney(product.taxAmount() * detail.quantity);
+    line.lineTotal = roundMoney(lineSub + lineTax - line.discountTotal);
+    return line;
+}
+
+void BillCalculator::calculate(Bill& bill, double amountReceived)
+{
+    if (!std::isfinite(amountReceived) || amountReceived < 0.0)
+    {
+        throw std::invalid_argument("amount received must be >= 0");
+    }
+
+    double sumNoTax = 0.0;
+    double sumDiscount = 0.0;
+    double sumLines = 0.0;
+
+    for (BillLine& line : bill.lines)
+    {
+        const double lineSub = roundMoney(line.unitPrice * line.quantity);
+        if (line.lineTotal == 0.0 && (lineSub > 0.0 || line.discountTotal > 0.0))
+        {
+            line.lineTotal = roundMoney(lineSub - line.discountTotal);
+        }
+        sumNoTax = roundMoney(sumNoTax + lineSub);
+        sumDiscount = roundMoney(sumDiscount + line.discountTotal);
+        sumLines = roundMoney(sumLines + line.lineTotal);
+    }
+
+    bill.totalNoTax = sumNoTax;
+    bill.totalDiscount = sumDiscount;
+    bill.totalPayable = sumLines < 0.0 ? 0.0 : sumLines;
+    bill.amountReceived = roundMoney(amountReceived);
+    const double balance = roundMoney(bill.amountReceived - bill.totalPayable);
+    bill.balanceReturned = balance < 0.0 ? 0.0 : balance;
+}
+
 void BillCalculator::calculate(Bill& bill,
                                  const vector<OrderDetail>& details,
                                  const vector<Product>& products,
@@ -128,6 +175,7 @@ void BillCalculator::calculate(Bill& bill,
         line.unitPrice = roundMoney(product.unitPrice());
         line.quantity = detail.quantity;
         line.discountTotal = lineDisc;
+        line.lineTotal = roundMoney(lineSub + lineTax - lineDisc);
         bill.lines.push_back(std::move(line));
     }
 
