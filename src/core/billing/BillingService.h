@@ -7,11 +7,13 @@
 
 #include "Bill.h"
 #include "IBillRepository.h"
+#include "IBillDetailRepository.h"
 #include "Order.h"
 #include "catalog/Product.h"
 #include "seasons/ISeasonProvider.h"
 
 class ProductCatalog;
+class SeasonService;
 
 class BillingService
 {
@@ -20,6 +22,18 @@ public:
                    std::shared_ptr<IBillRepository> billRepository,
                    std::shared_ptr<IBillDetailRepository> detailRepository,
                    std::shared_ptr<ISeasonProvider> seasonProvider = nullptr,
+                   std::string orderDetailFilePath = "OrderDetail.txt");
+
+    BillingService(const ProductCatalog& catalog,
+                   std::shared_ptr<IBillRepository> billRepository,
+                   SeasonService* seasonService,
+                   std::string orderDetailFilePath = "OrderDetail.txt",
+                   std::shared_ptr<IBillDetailRepository> detailRepository = nullptr);
+
+    BillingService(const ProductCatalog& catalog,
+                   std::shared_ptr<IBillRepository> billRepository,
+                   std::shared_ptr<IBillDetailRepository> detailRepository,
+                   SeasonService* seasonService,
                    std::string orderDetailFilePath = "OrderDetail.txt");
 
     Bill quote(const Order& order,
@@ -60,7 +74,10 @@ private:
     std::shared_ptr<IBillRepository> billRepository_;
     std::shared_ptr<IBillDetailRepository> detailRepository_;
     std::shared_ptr<ISeasonProvider> seasonProvider_;
+    SeasonService* rawSeasonService_ = nullptr;
     std::string orderDetailFilePath_;
+
+    double resolveSeasonPercent(const std::string& effectiveDate) const;
 
     std::vector<Product> resolveProducts(const Order& order,
                                          const std::vector<OrderDetail>& details,

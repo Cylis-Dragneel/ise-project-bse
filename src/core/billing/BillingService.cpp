@@ -1,6 +1,7 @@
 #include "BillingService.h"
 
 #include "BillCalculator.h"
+#include "FileBillDetailRepository.h"
 #include "BillRecordCodec.h"
 #include "OrderManager.h"
 #include "catalog/ProductCatalog.h"
@@ -19,14 +20,66 @@ BillingService::BillingService(const ProductCatalog& catalog,
                                string orderDetailFilePath)
     : catalog_(catalog),
       billRepository_(std::move(billRepository)),
-      detailRepository_(std::move(detailRepository)),
+      detailRepository_(detailRepository
+                            ? std::move(detailRepository)
+                            : std::make_shared<FileBillDetailRepository>("BillDetail.txt")),
       seasonProvider_(std::move(seasonProvider)),
+      rawSeasonService_(nullptr),
       orderDetailFilePath_(std::move(orderDetailFilePath))
 {
     if (!billRepository_ || !detailRepository_)
     {
         throw std::invalid_argument("BillingService requires bill and detail repositories");
     }
+}
+
+BillingService::BillingService(const ProductCatalog& catalog,
+                               std::shared_ptr<IBillRepository> billRepository,
+                               SeasonService* seasonService,
+                               string orderDetailFilePath,
+                               std::shared_ptr<IBillDetailRepository> detailRepository)
+    : catalog_(catalog),
+      billRepository_(std::move(billRepository)),
+      detailRepository_(detailRepository
+                            ? std::move(detailRepository)
+                            : std::make_shared<FileBillDetailRepository>("BillDetail.txt")),
+      seasonProvider_(nullptr),
+      rawSeasonService_(seasonService),
+      orderDetailFilePath_(std::move(orderDetailFilePath))
+{
+    if (!billRepository_ || !detailRepository_)
+    {
+        throw std::invalid_argument("BillingService requires bill and detail repositories");
+    }
+}
+
+BillingService::BillingService(const ProductCatalog& catalog,
+                               std::shared_ptr<IBillRepository> billRepository,
+                               std::shared_ptr<IBillDetailRepository> detailRepository,
+                               SeasonService* seasonService,
+                               string orderDetailFilePath)
+    : catalog_(catalog),
+      billRepository_(std::move(billRepository)),
+      detailRepository_(detailRepository
+                            ? std::move(detailRepository)
+                            : std::make_shared<FileBillDetailRepository>("BillDetail.txt")),
+      seasonProvider_(nullptr),
+      rawSeasonService_(seasonService),
+      orderDetailFilePath_(std::move(orderDetailFilePath))
+{
+    if (!billRepository_ || !detailRepository_)
+    {
+        throw std::invalid_argument("BillingService requires bill and detail repositories");
+    }
+}
+
+double BillingService::resolveSeasonPercent(const string& effectiveDate) const
+{
+    if (seasonProvider_)
+    {
+        return seasonProvider_->activePercent(effectiveDate);
+    }
+    return 0.0;
 }
 
 vector<Product> BillingService::resolveProducts(const Order& order,
@@ -92,7 +145,7 @@ Bill BillingService::quote(const Order& order,
                                      ? (order.time.empty() ? OrderManager::getCurrentTime() : order.time)
                                      : billTime;
 
-    const double seasonPct = seasonProvider_ ? seasonProvider_->activePercent(effectiveDate) : 0.0;
+    const double seasonPct = resolveSeasonPercent(effectiveDate);
 
     Bill bill;
     bill.orderId = order.orderId;
@@ -101,7 +154,6 @@ Bill BillingService::quote(const Order& order,
     bill.billDate = effectiveDate;
     bill.billTime = effectiveTime;
 
-    // Preview quote calculates payable and balance without enforcing paymentReceived
     BillCalculator::calculate(bill, details, products, seasonPct,
                             specialDiscountPercent, amountReceived, false);
     return bill;
@@ -123,7 +175,7 @@ Bill BillingService::generateBill(const Order& order,
                                      ? (order.time.empty() ? OrderManager::getCurrentTime() : order.time)
                                      : billTime;
 
-    const double seasonPct = seasonProvider_ ? seasonProvider_->activePercent(effectiveDate) : 0.0;
+    const double seasonPct = resolveSeasonPercent(effectiveDate);
 
     Bill bill;
     bill.orderId = order.orderId;
@@ -201,7 +253,7 @@ Bill BillingService::updateExistingBill(const string& existingBillId,
 
     const string effectiveDate = newBillDate.empty() ? OrderManager::getCurrentDate() : newBillDate;
     const string effectiveTime = newBillTime.empty() ? OrderManager::getCurrentTime() : newBillTime;
-    const double seasonPct = seasonProvider_ ? seasonProvider_->activePercent(effectiveDate) : 0.0;
+    const double seasonPct = resolveSeasonPercent(effectiveDate);
 
     Bill updatedBill;
     updatedBill.billId = existingBillId;
