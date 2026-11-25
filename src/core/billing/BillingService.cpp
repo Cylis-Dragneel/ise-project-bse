@@ -36,6 +36,26 @@ BillingService::BillingService(const ProductCatalog& catalog,
 
 BillingService::BillingService(const ProductCatalog& catalog,
                                std::shared_ptr<IBillRepository> billRepository,
+                               std::shared_ptr<IBillDetailRepository> detailRepository,
+                               SeasonService* seasonService,
+                               string orderDetailFilePath)
+    : catalog_(catalog),
+      billRepository_(std::move(billRepository)),
+      detailRepository_(detailRepository
+                            ? std::move(detailRepository)
+                            : std::make_shared<FileBillDetailRepository>("BillDetail.txt")),
+      seasonProvider_(nullptr),
+      rawSeasonService_(seasonService),
+      orderDetailFilePath_(std::move(orderDetailFilePath))
+{
+    if (!billRepository_ || !detailRepository_)
+    {
+        throw std::invalid_argument("BillingService requires bill and detail repositories");
+    }
+}
+
+BillingService::BillingService(const ProductCatalog& catalog,
+                               std::shared_ptr<IBillRepository> billRepository,
                                SeasonService* seasonService,
                                string orderDetailFilePath,
                                std::shared_ptr<IBillDetailRepository> detailRepository)

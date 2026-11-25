@@ -19,8 +19,14 @@ class BillingService
 public:
     BillingService(const ProductCatalog& catalog,
                    std::shared_ptr<IBillRepository> billRepository,
-                   std::shared_ptr<IBillDetailRepository> detailRepository = nullptr,
+                   std::shared_ptr<IBillDetailRepository> detailRepository,
                    std::shared_ptr<ISeasonProvider> seasonProvider = nullptr,
+                   std::string orderDetailFilePath = "OrderDetail.txt");
+
+    BillingService(const ProductCatalog& catalog,
+                   std::shared_ptr<IBillRepository> billRepository,
+                   std::shared_ptr<IBillDetailRepository> detailRepository,
+                   SeasonService* seasonService,
                    std::string orderDetailFilePath = "OrderDetail.txt");
 
     BillingService(const ProductCatalog& catalog,
