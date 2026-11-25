@@ -6,68 +6,83 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 
 using std::string;
 using std::vector;
 
-namespace
+namespace {
+
+string readWholeFile(const string& path, bool& exists)
 {
-    bool fileExists(const string& path)
+    std::ifstream input(path.c_str());
+    if (!input)
     {
-        std::ifstream f(path.c_str());
-        return f.good();
+        exists = false;
+        return string();
+    }
+    exists = true;
+
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    if (input.bad())
+    {
+        throw std::runtime_error("error while reading file: " + path);
+    }
+
+    string content = buffer.str();
+    if (content.compare(0, 3, "\xEF\xBB\xBF") == 0)
+    {
+        content.erase(0, 3);
+    }
+    return content;
+}
+
+void atomicWriteAll(const string& filePath, const vector<string>& formattedLines)
+{
+    const string tempPath = filePath + ".tmp";
+    std::ofstream output(tempPath.c_str(), std::ios::out | std::ios::trunc);
+    if (!output)
+    {
+        throw std::runtime_error("cannot open temp file for writing: " + tempPath);
+    }
+
+    for (const string& line : formattedLines)
+    {
+        output << line << "\n";
+    }
+
+    output.flush();
+    if (!output)
+    {
+        output.close();
+        std::remove(tempPath.c_str());
+        throw std::runtime_error("error while writing temp file: " + tempPath);
+    }
+    output.close();
+
+    std::remove(filePath.c_str());
+    if (std::rename(tempPath.c_str(), filePath.c_str()) != 0)
+    {
+        std::remove(tempPath.c_str());
+        throw std::runtime_error("failed to rename temp file to: " + filePath);
     }
 }
+
+} // namespace
 
 FileBillRepository::FileBillRepository(const string& filePath)
     : filePath_(filePath)
 {
 }
 
-bool FileBillRepository::renameFile(const string& from, const string& to)
-{
-    return std::rename(from.c_str(), to.c_str()) == 0;
-}
-
-bool FileBillRepository::removeFile(const string& path)
-{
-    return std::remove(path.c_str()) == 0;
-}
-
-void FileBillRepository::recoverInterruptedSave()
-{
-    if (!fileExists(filePath_) && fileExists(backupPath()))
-    {
-        if (!renameFile(backupPath(), filePath_))
-            throw std::runtime_error("cannot restore " + filePath_ + " from backup " + backupPath());
-
-        if (fileExists(tempPath()))
-            removeFile(tempPath());
-    }
-}
-
 vector<Bill> FileBillRepository::loadAll()
 {
-    recoverInterruptedSave();
-
-    std::ifstream input(filePath_.c_str());
-    if (!input)
+    bool exists = false;
+    const string content = readWholeFile(filePath_, exists);
+    if (!exists)
     {
-        // Bill.txt does not exist until the first bill is generated.
         return vector<Bill>();
-    }
-
-    std::ostringstream buffer;
-    buffer << input.rdbuf();
-    if (input.bad())
-    {
-        throw std::runtime_error("error while reading bill file: " + filePath_);
-    }
-
-    string content = buffer.str();
-    if (content.compare(0, 3, "\xEF\xBB\xBF") == 0) // UTF-8 BOM added by some editors
-    {
-        content.erase(0, 3);
     }
 
     vector<string> records;
@@ -81,11 +96,17 @@ vector<Bill> FileBillRepository::loadAll()
     }
 
     vector<Bill> bills;
+    std::unordered_set<string> seenIds;
     for (std::size_t i = 0; i < records.size(); ++i)
     {
         try
         {
-            bills.push_back(BillRecordCodec::parse(records[i]));
+            Bill bill = BillRecordCodec::parse(records[i]);
+            if (!seenIds.insert(bill.billId).second)
+            {
+                throw std::invalid_argument("duplicate bill id '" + bill.billId + "'");
+            }
+            bills.push_back(std::move(bill));
         }
         catch (const std::invalid_argument& error)
         {
@@ -93,62 +114,99 @@ vector<Bill> FileBillRepository::loadAll()
                                         ": " + error.what());
         }
     }
-
     return bills;
 }
 
 void FileBillRepository::saveAll(const vector<Bill>& bills)
 {
-    recoverInterruptedSave();
+    std::unordered_set<string> seenIds;
+    vector<string> formatted;
+    formatted.reserve(bills.size());
 
-    const string temp = tempPath();
-    const string backup = backupPath();
-
-    bool written = false;
+    for (const Bill& bill : bills)
     {
-        std::ofstream output(temp.c_str(), std::ios::trunc);
-        if (!output)
-            throw std::runtime_error("cannot create temporary file: " + temp);
-
-        for (const Bill& bill : bills)
-            output << BillRecordCodec::format(bill) << "\n";
-
-        output.close();
-        written = !output.fail();
-    }
-    if (!written)
-    {
-        removeFile(temp);
-        throw std::runtime_error("error while writing temporary file: " + temp +
-            " (the bill file was not changed)");
-    }
-
-    const bool hadOriginal = fileExists(filePath_);
-    if (hadOriginal)
-    {
-        removeFile(backup);
-        if (!renameFile(filePath_, backup))
+        if (!seenIds.insert(bill.billId).second)
         {
-            removeFile(temp);
-            throw std::runtime_error("cannot create backup " + backup +
-                " (the bill file was not changed)");
+            throw std::invalid_argument("duplicate bill id on save: '" + bill.billId + "'");
+        }
+        formatted.push_back(BillRecordCodec::format(bill));
+    }
+
+    atomicWriteAll(filePath_, formatted);
+}
+
+void FileBillRepository::append(const Bill& bill)
+{
+    vector<Bill> existing = loadAll();
+    for (const Bill& item : existing)
+    {
+        if (item.billId == bill.billId)
+        {
+            throw std::invalid_argument("duplicate bill id on append: '" + bill.billId + "'");
         }
     }
+    existing.push_back(bill);
+    saveAll(existing);
+}
 
-    if (!renameFile(temp, filePath_))
+FileBillDetailRepository::FileBillDetailRepository(const string& filePath)
+    : filePath_(filePath)
+{
+}
+
+vector<BillLine> FileBillDetailRepository::loadAll()
+{
+    bool exists = false;
+    const string content = readWholeFile(filePath_, exists);
+    if (!exists)
     {
-        string message = "cannot put the new bill file in place: " + filePath_;
-        if (hadOriginal)
-        {
-            if (renameFile(backup, filePath_))
-                message += " (the previous file was restored)";
-            else
-                message += " (the previous data is kept in " + backup + ")";
-        }
-        removeFile(temp);
-        throw std::runtime_error(message);
+        return vector<BillLine>();
     }
 
-    if (hadOriginal)
-        removeFile(backup);
+    vector<string> records;
+    try
+    {
+        records = BillDetailRecordCodec::splitRecords(content);
+    }
+    catch (const std::invalid_argument& error)
+    {
+        throw std::invalid_argument(filePath_ + ": " + error.what());
+    }
+
+    vector<BillLine> lines;
+    for (std::size_t i = 0; i < records.size(); ++i)
+    {
+        try
+        {
+            lines.push_back(BillDetailRecordCodec::parse(records[i]));
+        }
+        catch (const std::invalid_argument& error)
+        {
+            throw std::invalid_argument(filePath_ + ", record " + std::to_string(i + 1) +
+                                        ": " + error.what());
+        }
+    }
+    return lines;
+}
+
+void FileBillDetailRepository::saveAll(const vector<BillLine>& lines)
+{
+    vector<string> formatted;
+    formatted.reserve(lines.size());
+    for (const BillLine& line : lines)
+    {
+        formatted.push_back(BillDetailRecordCodec::format(line));
+    }
+    atomicWriteAll(filePath_, formatted);
+}
+
+void FileBillDetailRepository::append(const vector<BillLine>& lines)
+{
+    if (lines.empty())
+    {
+        return;
+    }
+    vector<BillLine> existing = loadAll();
+    existing.insert(existing.end(), lines.begin(), lines.end());
+    saveAll(existing);
 }
