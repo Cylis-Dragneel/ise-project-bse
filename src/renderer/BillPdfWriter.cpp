@@ -38,6 +38,7 @@ bool BillPdfWriter::writeBillPdf(const Bill& bill,
     }
 
     const int pageWidth = writer.width();
+    const int pageHeight = writer.height();
     int y = 100;
 
     const QFont titleFont("SansSerif", 16, QFont::Bold);
@@ -89,6 +90,12 @@ bool BillPdfWriter::writeBillPdf(const Bill& bill,
     painter.setFont(monoFont);
     for (const BillLine& line : bill.lines)
     {
+        if (y + 100 > pageHeight)
+        {
+            writer.newPage();
+            y = 100;
+            painter.setFont(monoFont);
+        }
         const double lineNoTax =
             BillCalculator::roundMoney((line.unitPrice * line.quantity) - line.discountTotal);
         painter.drawText(col1, y + 50, QString::fromStdString(line.productAcronym));
@@ -97,6 +104,12 @@ bool BillPdfWriter::writeBillPdf(const Bill& bill,
         painter.drawText(col4, y + 50, QString::number(line.discountTotal, 'f', 2));
         painter.drawText(col5, y + 50, QString::number(lineNoTax, 'f', 2));
         y += 75;
+    }
+
+    if (y + 700 > pageHeight)
+    {
+        writer.newPage();
+        y = 100;
     }
 
     y += 30;

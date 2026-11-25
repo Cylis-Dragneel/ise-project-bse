@@ -1,10 +1,11 @@
 #include "BillingService.h"
 
 #include "BillCalculator.h"
-#include "FileBillDetailRepository.h"
 #include "BillRecordCodec.h"
+#include "FileBillRepository.h"
 #include "OrderManager.h"
 #include "catalog/ProductCatalog.h"
+#include "seasons/SeasonService.h"
 
 #include <map>
 #include <stdexcept>
@@ -53,38 +54,22 @@ BillingService::BillingService(const ProductCatalog& catalog,
     }
 }
 
-BillingService::BillingService(const ProductCatalog& catalog,
-                               std::shared_ptr<IBillRepository> billRepository,
-                               std::shared_ptr<IBillDetailRepository> detailRepository,
-                               SeasonService* seasonService,
-                               string orderDetailFilePath)
-    : catalog_(catalog),
-      billRepository_(std::move(billRepository)),
-      detailRepository_(detailRepository
-                            ? std::move(detailRepository)
-                            : std::make_shared<FileBillDetailRepository>("BillDetail.txt")),
-      seasonProvider_(nullptr),
-      rawSeasonService_(seasonService),
-      orderDetailFilePath_(std::move(orderDetailFilePath))
-{
-    if (!billRepository_ || !detailRepository_)
-    {
-        throw std::invalid_argument("BillingService requires bill and detail repositories");
-    }
-}
-
 double BillingService::resolveSeasonPercent(const string& effectiveDate) const
 {
     if (seasonProvider_)
     {
         return seasonProvider_->activePercent(effectiveDate);
     }
+    if (rawSeasonService_ != nullptr)
+    {
+        return rawSeasonService_->activePercent(effectiveDate);
+    }
     return 0.0;
 }
 
 vector<Product> BillingService::resolveProducts(const Order& order,
-                                          const vector<OrderDetail>& details,
-                                          bool checkStock) const
+                                              const vector<OrderDetail>& details,
+                                              bool checkStock) const
 {
     if (!OrderManager::validateOrder(order, details))
     {

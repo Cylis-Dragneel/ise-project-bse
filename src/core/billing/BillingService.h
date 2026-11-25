@@ -7,7 +7,6 @@
 
 #include "Bill.h"
 #include "IBillRepository.h"
-#include "IBillDetailRepository.h"
 #include "Order.h"
 #include "catalog/Product.h"
 #include "seasons/ISeasonProvider.h"
@@ -20,7 +19,7 @@ class BillingService
 public:
     BillingService(const ProductCatalog& catalog,
                    std::shared_ptr<IBillRepository> billRepository,
-                   std::shared_ptr<IBillDetailRepository> detailRepository,
+                   std::shared_ptr<IBillDetailRepository> detailRepository = nullptr,
                    std::shared_ptr<ISeasonProvider> seasonProvider = nullptr,
                    std::string orderDetailFilePath = "OrderDetail.txt");
 
@@ -29,12 +28,6 @@ public:
                    SeasonService* seasonService,
                    std::string orderDetailFilePath = "OrderDetail.txt",
                    std::shared_ptr<IBillDetailRepository> detailRepository = nullptr);
-
-    BillingService(const ProductCatalog& catalog,
-                   std::shared_ptr<IBillRepository> billRepository,
-                   std::shared_ptr<IBillDetailRepository> detailRepository,
-                   SeasonService* seasonService,
-                   std::string orderDetailFilePath = "OrderDetail.txt");
 
     Bill quote(const Order& order,
                const std::vector<OrderDetail>& details,
