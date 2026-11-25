@@ -58,6 +58,16 @@ double BillCalculator::roundMoney(double value)
     return rounded == 0.0 ? 0.0 : rounded;
 }
 
+double BillCalculator::lineTotal(const BillLine& line)
+{
+    if (line.lineTotal != 0.0)
+    {
+        return roundMoney(line.lineTotal);
+    }
+    const double sub = roundMoney(line.unitPrice * line.quantity);
+    return roundMoney(sub + line.taxTotal - line.discountTotal);
+}
+
 string BillCalculator::nextBillId(const vector<Bill>& existing)
 {
     long long maxId = 0;
@@ -87,9 +97,9 @@ BillLine BillCalculator::makeLine(const string& billId,
     line.unitPrice = roundMoney(product.unitPrice());
     line.quantity = detail.quantity;
     line.discountTotal = roundMoney(product.discountPerUnit() * detail.quantity);
+    line.taxTotal = roundMoney(product.taxAmount() * detail.quantity);
     const double lineSub = roundMoney(product.unitPrice() * detail.quantity);
-    const double lineTax = roundMoney(product.taxAmount() * detail.quantity);
-    line.lineTotal = roundMoney(lineSub + lineTax - line.discountTotal);
+    line.lineTotal = roundMoney(lineSub + line.taxTotal - line.discountTotal);
     return line;
 }
 
@@ -101,22 +111,25 @@ void BillCalculator::calculate(Bill& bill, double amountReceived)
     }
 
     double sumNoTax = 0.0;
+    double sumTax = 0.0;
     double sumDiscount = 0.0;
     double sumLines = 0.0;
 
     for (BillLine& line : bill.lines)
     {
         const double lineSub = roundMoney(line.unitPrice * line.quantity);
-        if (line.lineTotal == 0.0 && (lineSub > 0.0 || line.discountTotal > 0.0))
+        if (line.lineTotal == 0.0 && (lineSub > 0.0 || line.discountTotal > 0.0 || line.taxTotal > 0.0))
         {
-            line.lineTotal = roundMoney(lineSub - line.discountTotal);
+            line.lineTotal = roundMoney(lineSub + line.taxTotal - line.discountTotal);
         }
         sumNoTax = roundMoney(sumNoTax + lineSub);
+        sumTax = roundMoney(sumTax + line.taxTotal);
         sumDiscount = roundMoney(sumDiscount + line.discountTotal);
         sumLines = roundMoney(sumLines + line.lineTotal);
     }
 
     bill.totalNoTax = sumNoTax;
+    bill.totalTax = sumTax;
     bill.totalDiscount = sumDiscount;
     bill.totalPayable = sumLines < 0.0 ? 0.0 : sumLines;
     bill.amountReceived = roundMoney(amountReceived);
@@ -175,6 +188,7 @@ void BillCalculator::calculate(Bill& bill,
         line.unitPrice = roundMoney(product.unitPrice());
         line.quantity = detail.quantity;
         line.discountTotal = lineDisc;
+        line.taxTotal = lineTax;
         line.lineTotal = roundMoney(lineSub + lineTax - lineDisc);
         bill.lines.push_back(std::move(line));
     }

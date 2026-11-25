@@ -14,6 +14,8 @@ class BillCalculator
 public:
     static double roundMoney(double value);
 
+    static double lineTotal(const BillLine& line);
+
     static std::string nextBillId(const std::vector<Bill>& existing);
 
     static BillLine makeLine(const std::string& billId,

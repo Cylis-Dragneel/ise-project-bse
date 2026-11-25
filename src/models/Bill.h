@@ -12,6 +12,7 @@ struct BillLine {
     double unitPrice = 0.0;     // unit price without tax
     double quantity = 0.0;      // count or weight
     double discountTotal = 0.0; // whole-line discount (discountPerUnit * quantity)
+    double taxTotal = 0.0;      // convenience tax total for UI/display
     double lineTotal = 0.0;     // convenience computed line total for UI/display
 };
 
