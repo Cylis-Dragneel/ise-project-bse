@@ -16,7 +16,6 @@ struct StockRequest
     std::string barcode;
     double quantity;
 };
-
 // One signed stock movement: positive returns stock, negative deducts it.
 // Keyed by barcode because that is the product identity stored in orders.
 struct StockChange
