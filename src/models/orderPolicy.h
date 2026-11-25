@@ -18,12 +18,13 @@ struct BillStamp {
 //
 //   archived              -> never editable
 //   on-hold / in-progress -> always editable
-//   paid                  -> editable directly while the bill (or, with no
-//                            bill, the order) is at most 7 days old;
-//                            older than that it needs manager approval.
+//   paid                  -> editable only while the bill (or, with no bill,
+//                            the order) is at most 7 days old, and always
+//                            with manager approval; older than 7 days it is
+//                            not editable at all.
 //
 // "Days old" is whole calendar days between the stamp date and `today`, so
-// day 7 is still direct and day 8 needs approval.
+// day 7 is still inside the window and day 8 is not.
 class OrderPolicy {
 public:
     static constexpr int kPaidEditWindowDays = 7;
@@ -42,12 +43,14 @@ public:
                                        const BillStamp &bill,
                                        const std::string &today);
 
-    // Paid and outside the 7-day window.
+    // Paid and inside the 7-day window: the edit needs manager approval.
+    // Paid and outside the window is not editable at all.
     static bool requiresManagerApproval(const Order &order,
                                         const BillStamp &bill,
                                         const std::string &today);
 
     // `managerApproved` is the per-order, per-session approval from the UI.
+    // A paid order is editable only inside the window AND with approval.
     static bool canEdit(const Order &order,
                         const BillStamp &bill,
                         const std::string &today,

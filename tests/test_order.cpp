@@ -520,20 +520,28 @@ TEST_CASE(update_restores_detail_file_when_order_commit_fails)
 TEST_CASE(policy_rules_master)
 {
     BillStamp none;
-    Order p = mk("00011116", "2026-11-16", "paid");
-    CHECK(OrderPolicy::canEdit(p, none, "2026-11-23"));
-    CHECK(!OrderPolicy::requiresManagerApproval(p, none, "2026-11-23"));
 
+    // 7 days old: inside the window, but a paid edit always needs approval.
+    Order p = mk("00011116", "2026-11-16", "paid");
+    CHECK(!OrderPolicy::canEdit(p, none, "2026-11-23"));
+    CHECK(OrderPolicy::requiresManagerApproval(p, none, "2026-11-23"));
+    CHECK(OrderPolicy::canEdit(p, none, "2026-11-23", true));
+
+    // 8 days old: outside the window, not editable even with approval.
     Order q = mk("00011115", "2026-11-15", "paid");
     CHECK(!OrderPolicy::canEdit(q, none, "2026-11-23"));
-    CHECK(OrderPolicy::requiresManagerApproval(q, none, "2026-11-23"));
-    CHECK(OrderPolicy::canEdit(q, none, "2026-11-23", true));
+    CHECK(!OrderPolicy::requiresManagerApproval(q, none, "2026-11-23"));
+    CHECK(!OrderPolicy::canEdit(q, none, "2026-11-23", true));
 
+    // The bill date is what counts: a recent bill brings the old order back
+    // into the window, where approval is still required.
     BillStamp bill;
     bill.hasBill = true;
     bill.date = "2026-11-22";
     bill.time = "09:00:00";
-    CHECK(OrderPolicy::canEdit(q, bill, "2026-11-23"));
+    CHECK(!OrderPolicy::canEdit(q, bill, "2026-11-23"));
+    CHECK(OrderPolicy::requiresManagerApproval(q, bill, "2026-11-23"));
+    CHECK(OrderPolicy::canEdit(q, bill, "2026-11-23", true));
 
     CHECK(OrderPolicy::canEdit(mk("00011101", "2026-01-01", "on-hold"), none, "2026-11-23"));
     CHECK(OrderPolicy::canEdit(mk("00011101", "2026-01-01", "in-progress"), none, "2026-11-23"));
@@ -608,12 +616,21 @@ TEST_CASE(approval_and_archive_unpaid_master) {
     Env e("approval");
     FakeStock st;
     st.qty = {{1, 10}};
-    Order old = mk("00011110", "2026-11-10", "paid");
-    CHECK(OrderService::saveNewOrder(old, {det("", 1, "428647", 3)}, st, e.paths) == OrderResult::Ok);
+    Order recent = mk("00011116", "2026-11-16", "paid");
+    CHECK(OrderService::saveNewOrder(recent, {det("", 1, "428647", 3)}, st, e.paths) == OrderResult::Ok);
     BillStamp none;
-    Order upd = old; upd.customerName = "New Name";
+    Order upd = recent; upd.customerName = "New Name";
     CHECK(OrderService::editOrder(upd, {det("", 1, "428647", 2)}, none, "2026-11-23", false, st, e.paths) == OrderResult::NeedsApproval);
     CHECK(OrderService::editOrder(upd, {det("", 1, "428647", 2)}, none, "2026-11-23", true, st, e.paths) == OrderResult::Ok);
+
+    // Older than the 7-day window: not editable, approval or not.
+    Env oldEnv("approval_old");
+    FakeStock oldStock;
+    oldStock.qty = {{1, 10}};
+    Order old = mk("00011110", "2026-11-10", "paid");
+    CHECK(OrderService::saveNewOrder(old, {det("", 1, "428647", 1)}, oldStock, oldEnv.paths) == OrderResult::Ok);
+    Order oldUpd = old; oldUpd.customerName = "Older";
+    CHECK(OrderService::editOrder(oldUpd, {det("", 1, "428647", 1)}, none, "2026-11-23", true, oldStock, oldEnv.paths) == OrderResult::NotEditable);
 
     Order h; h.date = "2026-11-23";
     CHECK(OrderService::holdOrder(h, {det("", 1, "428647", 5)}, st, e.paths) == OrderResult::Ok);

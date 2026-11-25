@@ -118,7 +118,7 @@ bool OrderPolicy::requiresManagerApproval(const Order &order,
                                           const std::string &today)
 {
     return order.status == "paid" &&
-           !isWithinPaidEditWindow(order, bill, today);
+           isWithinPaidEditWindow(order, bill, today);
 }
 
 bool OrderPolicy::canEdit(const Order &order,
@@ -133,7 +133,7 @@ bool OrderPolicy::canEdit(const Order &order,
 
     if (order.status == "paid")
     {
-        return isWithinPaidEditWindow(order, bill, today) || managerApproved;
+        return isWithinPaidEditWindow(order, bill, today) && managerApproved;
     }
 
     return false; // archived or unknown
