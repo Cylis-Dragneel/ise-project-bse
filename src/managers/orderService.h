@@ -15,9 +15,9 @@ struct StockDelta {
     double delta = 0;
 };
 
-// Implemented over Person A's ProductCatalog::adjustStock(...). Contract:
-// all-or-nothing. Returns false (and changes nothing) if any product is
-// unknown or would go below zero.
+// Implemented over ProductCatalog::adjustStock(...) by CatalogStockAdjuster.
+// Contract: all-or-nothing. Returns false (and changes nothing) if any product
+// is unknown or would go below zero.
 class IStockAdjuster {
 public:
     virtual ~IStockAdjuster() = default;
@@ -35,7 +35,7 @@ enum class OrderResult {
     NotFound,        // unknown order id
     DuplicateId,     // caller-supplied id already exists
     NotEditable,     // archived order
-    NeedsApproval,   // paid order older than 7 days, no manager approval
+    NeedsApproval,   // paid order inside the 7-day window, no manager approval
     BadTransition,   // status change not allowed by OrderPolicy
     StockFailed,     // not enough stock / unknown product; nothing changed
     WriteFailed      // file write failed; stock change was rolled back

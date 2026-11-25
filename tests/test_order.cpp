@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -13,6 +14,9 @@
 #include "../src/managers/OrderManager.h"
 #include "../src/models/orderPolicy.h"
 #include "../src/managers/orderService.h"
+#include "../src/managers/catalogStockAdjuster.h"
+#include "../src/core/catalog/FileProductRepository.h"
+#include "../src/core/catalog/ProductCatalog.h"
 
 namespace fs = std::filesystem;
 
@@ -587,7 +591,7 @@ TEST_CASE(flow_and_stock_master) {
     CHECK(OrderService::holdOrder(o, {det("", 1, "428647", 4)}, st, e.paths) == OrderResult::Ok);
     CHECK(o.orderId == "00011123" && o.status == "on-hold");
     CHECK(st.qty[1] == 6);
-    CHECK(OrderManager::loadOrders("on-hold", e.paths.order).size() == 1);
+    CHECK(OrderManager::loadOrdersByStatus("on-hold", e.paths.order).size() == 1);
 
     Order r; std::vector<OrderDetail> rd;
     CHECK(OrderService::resumeOrder("00011123", r, rd, e.paths) == OrderResult::Ok);
@@ -626,4 +630,32 @@ TEST_CASE(write_failure_rolls_back_stock_master) {
     Order o; o.date = "2026-11-23";
     CHECK(OrderService::saveNewOrder(o, {det("", 1, "428647", 4)}, st, bad) == OrderResult::WriteFailed);
     CHECK(st.qty[1] == 10);
+}
+
+TEST_CASE(catalog_stock_adjuster_bridges_order_deltas)
+{
+    const std::string productPath = "test_order_products_tmp.txt";
+    {
+        std::ofstream out(productPath.c_str(), std::ios::trunc);
+        out << readFile(fixturePath("Product.txt").c_str());
+    }
+
+    ProductCatalog catalog(std::make_shared<FileProductRepository>(productPath));
+    catalog.load();
+    CatalogStockAdjuster adjuster(catalog);
+
+    const double before = catalog.findByBarcode("428647")->availableQuantity();
+    CHECK(adjuster.adjustStock({{1, "428647", -3.0}}));
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == before - 3.0);
+
+    // Unknown product and below-zero movements return false, nothing changes.
+    CHECK(!adjuster.adjustStock({{999, "999999", -1.0}}));
+    CHECK(!adjuster.adjustStock({{1, "428647", -1e9}}));
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == before - 3.0);
+
+    // productId is used when the delta carries no barcode.
+    CHECK(adjuster.adjustStock({{1, "", 2.0}}));
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == before - 1.0);
+
+    std::remove(productPath.c_str());
 }

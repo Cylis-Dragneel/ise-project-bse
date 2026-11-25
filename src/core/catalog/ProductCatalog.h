@@ -17,6 +17,14 @@ struct StockRequest
     double quantity;
 };
 
+// One signed stock movement: positive returns stock, negative deducts it.
+// Keyed by barcode because that is the product identity stored in orders.
+struct StockChange
+{
+    std::string barcode;
+    double delta = 0;
+};
+
 // The business view of the products: look up by barcode / id, check stock,
 // deduct stock when a bill is generated. Knows nothing about files or GUI.
 class ProductCatalog
@@ -54,6 +62,13 @@ public:
     // new stock is saved through the repository; if saving fails the in-memory
     // stock is rolled back and the exception is rethrown.
     void deductStock(const std::vector<StockRequest>& requests);
+
+    // Applies signed movements (positive = return, negative = deduct)
+    // all-or-nothing: unknown barcodes and movements that would take a product
+    // below zero change nothing. The same barcode on several rows is summed
+    // first. Persists through the repository and leaves the in-memory list
+    // untouched when validation or saving fails.
+    void adjustStock(const std::vector<StockChange>& changes);
 
     // Manager operations. All persist through the repository and roll the
     // in-memory list back when saving fails.

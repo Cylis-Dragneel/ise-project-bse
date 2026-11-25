@@ -134,6 +134,51 @@ void ProductCatalog::deductStock(const vector<StockRequest>& requests)
     }
 }
 
+void ProductCatalog::adjustStock(const vector<StockChange>& changes)
+{
+    if (changes.empty()) return; // nothing to change, nothing to save
+
+    // Same product may appear on several rows: add the movements up first.
+    std::map<string, double> totals;
+    for (size_t i = 0; i < changes.size(); i++)
+    {
+        if (!std::isfinite(changes[i].delta))
+            throw std::invalid_argument(
+                "stock change must be a finite number for barcode " +
+                changes[i].barcode);
+        totals[changes[i].barcode] += changes[i].delta;
+    }
+
+    // 1) validate everything, change nothing
+    for (auto it = totals.begin(); it != totals.end(); ++it)
+    {
+        if (it->second == 0.0) continue;
+
+        const Product* p = findByBarcode(it->first);
+        if (p == nullptr)
+            throw std::invalid_argument("unknown product barcode: " + it->first);
+        if (it->second < 0 && !p->hasStockFor(-it->second))
+            throw std::out_of_range("not enough stock of '" + p->acronym() + "'");
+    }
+
+    // 2) apply on a copy; the live list is only replaced after a successful save
+    vector<Product> next = products_;
+    for (auto it = totals.begin(); it != totals.end(); ++it)
+    {
+        if (it->second == 0.0) continue;
+
+        Product& product = next[indexByBarcode_[it->first]];
+        if (it->second < 0)
+            product.reduceStock(-it->second);
+        else
+            product.addStock(it->second);
+    }
+
+    repository_->saveAll(next);
+    products_ = std::move(next);
+    rebuildIndexes();
+}
+
 void ProductCatalog::addProduct(const Product& product)
 {
     if (indexById_.find(product.id()) != indexById_.end())

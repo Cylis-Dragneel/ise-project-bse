@@ -45,10 +45,11 @@ public:
         const std::string &orderFilePath = "Order.txt",
         const std::string &detailFilePath = "OrderDetail.txt");
 
-    // Overload loadOrders to support status filtering
-    static std::vector<Order> loadOrders(
+    // Loads only the orders whose status equals statusFilter ("" = all).
+    // Named separately so it cannot be confused with the file-path overload.
+    static std::vector<Order> loadOrdersByStatus(
         const std::string &statusFilter,
-        const std::string &orderFilePath);
+        const std::string &orderFilePath = "Order.txt");
 };
 
 #endif

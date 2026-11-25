@@ -520,9 +520,7 @@ bool OrderManager::saveOrderTransaction(
 
     for (const OrderDetail &detail : details)
     {
-        detailFile << detail.orderId << ' ' << detail.productId << ' '
-                   << detail.productBarcode << ' '
-                   << formatNumber(detail.quantity) << " #\n";
+        detailFile << formatDetailLine(detail) << '\n';
     }
 
     if (!detailFile.good())
@@ -530,12 +528,7 @@ bool OrderManager::saveOrderTransaction(
         return false;
     }
 
-    orderFile << order.orderId << ' ' << order.date << ' ' << order.time << ' '
-              << sanitize(order.customerName) << ' '
-              << sanitize(order.contact) << ' ' << order.status << ' '
-              << formatNumber(order.paymentAmount) << ' '
-              << order.paymentMode << ' ' << sanitize(order.merchant)
-              << " #\n";
+    orderFile << formatOrderLine(order) << '\n';
 
     detailFile.flush();
     orderFile.flush();
@@ -723,8 +716,8 @@ bool OrderManager::updateOrderTransaction(
     return true;
 }
 
-// Overloaded loadOrders with status filtering for the resume workflow
-std::vector<Order> OrderManager::loadOrders(
+// Loads only the orders whose status equals statusFilter ("" = all).
+std::vector<Order> OrderManager::loadOrdersByStatus(
     const std::string &statusFilter,
     const std::string &orderFilePath)
 {

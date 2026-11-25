@@ -505,3 +505,56 @@ TEST_CASE(catalog_adds_updates_and_sets_stock)
 
     std::remove(catalogPath);
 }
+
+TEST_CASE(catalog_adjust_stock_applies_mixed_movements)
+{
+    copyFixtureTo(catalogPath);
+    ProductCatalog catalog(std::make_shared<FileProductRepository>(catalogPath));
+    catalog.load();
+
+    const double milkBefore = catalog.findByBarcode("428647")->availableQuantity();
+    const double sugarBefore = catalog.findByBarcode("579158")->availableQuantity();
+
+    // Same barcode twice is summed first: -2 + 1 = -1.
+    catalog.adjustStock({{"428647", -2.0}, {"428647", 1.0}, {"579158", -1.5}});
+
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == milkBefore - 1.0);
+    CHECK(catalog.findByBarcode("579158")->availableQuantity() == sugarBefore - 1.5);
+
+    // The new stock is persisted.
+    ProductCatalog reloaded(std::make_shared<FileProductRepository>(catalogPath));
+    reloaded.load();
+    CHECK(reloaded.findByBarcode("428647")->availableQuantity() == milkBefore - 1.0);
+    CHECK(reloaded.findByBarcode("579158")->availableQuantity() == sugarBefore - 1.5);
+
+    std::remove(catalogPath);
+}
+
+TEST_CASE(catalog_adjust_stock_is_all_or_nothing)
+{
+    copyFixtureTo(catalogPath);
+    ProductCatalog catalog(std::make_shared<FileProductRepository>(catalogPath));
+    catalog.load();
+
+    const double milkBefore = catalog.findByBarcode("428647")->availableQuantity();
+
+    // Unknown barcode: nothing changes.
+    CHECK_THROWS_AS(catalog.adjustStock({{"428647", 1.0}, {"999999", 1.0}}),
+                    std::invalid_argument);
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == milkBefore);
+
+    // Below zero: nothing changes.
+    CHECK_THROWS_AS(catalog.adjustStock({{"428647", 1.0}, {"428647", -1e9}}),
+                    std::out_of_range);
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == milkBefore);
+
+    // A fractional movement of a count product is rejected, not rounded.
+    CHECK_THROWS_AS(catalog.adjustStock({{"428647", 1.5}}), std::invalid_argument);
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == milkBefore);
+
+    // An empty list is a successful no-op.
+    catalog.adjustStock({});
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == milkBefore);
+
+    std::remove(catalogPath);
+}
