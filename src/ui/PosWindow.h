@@ -63,6 +63,7 @@ private:
     // --- setup ---
     QWidget *createRolePage();
     QWidget *createPosPage();
+    QWidget *createManagerPage();
     void selectRole(Role role);
 
     // --- cart ---

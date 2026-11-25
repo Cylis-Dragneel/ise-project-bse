@@ -18,7 +18,9 @@
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QFormLayout>
+#include <QFrame>
 #include <QGroupBox>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -28,6 +30,8 @@
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
 #include <QStackedWidget>
+#include <QScrollArea>
+#include <QSizePolicy>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTextEdit>
@@ -125,55 +129,27 @@ PosWindow::PosWindow(QWidget *parent)
     stack_ = new QStackedWidget(this);
     stack_->addWidget(createRolePage());
     stack_->addWidget(createPosPage());
+    stack_->addWidget(createManagerPage());
     layout->addWidget(stack_);
 
     setStyleSheet(R"(
-        QWidget#PosPage { background: #f3f4f6; }
-        QWidget#PosPage QGroupBox {
-            border: 1px solid #d1d5db;
-            border-radius: 8px;
-            margin-top: 10px;
-            padding-top: 8px;
-            background: #ffffff;
-        }
-        QWidget#PosPage QGroupBox::title {
-            subcontrol-origin: margin;
-            left: 10px;
-            padding: 0 4px;
-            font-weight: bold;
-            color: #2b2e3b;
-        }
-        QWidget#PosPage QTableWidget {
-            background: #ffffff;
-            alternate-background-color: #f9fafb;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-        }
-        QWidget#PosPage QHeaderView::section {
-            background: #f9fafb;
-            color: #6b7280;
-            font-weight: bold;
-            border: none;
-            border-bottom: 1px solid #e5e7eb;
-            padding: 6px;
-        }
-        QWidget#PosPage QLineEdit,
-        QWidget#PosPage QComboBox,
-        QWidget#PosPage QDoubleSpinBox {
-            background: #ffffff;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            padding: 6px;
-        }
-        QWidget#PosPage QTextEdit {
-            background: #ffffff;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-        }
-        QWidget#PosPage QPushButton:disabled {
-            background-color: #9ca3af;
-            color: #f3f4f6;
-        }
+        QWidget#RolePage { background: #000000; }
+        QWidget#RolePage QLabel { color: #ffffff; }
+        QWidget#RolePage QPushButton { background: #183f37; color: #ffffff; border: 1px solid #286052; border-radius: 10px; min-height: 56px; min-width: 280px; padding: 10px 22px; font-size: 16px; font-weight: 700; }
+        QWidget#RolePage QPushButton:hover { background: #24594d; }
+        QWidget#PosPage { background: #000000; color: #f2f2f2; }
+        QWidget#PosPage QLabel { color: #eeeeee; }
+        QWidget#PosPage QGroupBox { background: #090909; color: #ffffff; border: 1px solid #303030; border-radius: 10px; margin-top: 12px; padding: 14px 10px 10px; }
+        QWidget#PosPage QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 5px; font-weight: 700; color: #ffffff; }
+        QWidget#PosPage QTableWidget { background: #101010; alternate-background-color: #191919; color: #eeeeee; border: 1px solid #303030; border-radius: 8px; gridline-color: #292929; selection-background-color: #28516d; selection-color: #ffffff; }
+        QWidget#PosPage QHeaderView::section { background: #183f37; color: #ffffff; font-weight: 700; border: 0; padding: 9px 6px; }
+        QWidget#PosPage QLineEdit, QWidget#PosPage QComboBox, QWidget#PosPage QDoubleSpinBox { background: #151515; border: 1px solid #3b3b3b; border-radius: 7px; padding: 8px; color: #ffffff; }
+        QWidget#PosPage QLineEdit:focus, QWidget#PosPage QComboBox:focus, QWidget#PosPage QDoubleSpinBox:focus { border: 1px solid #00a65a; }
+        QWidget#PosPage QTextEdit { background: #101010; border: 1px solid #303030; border-radius: 8px; color: #eeeeee; padding: 7px; }
+        QWidget#PosPage QPushButton { background: #28516d; color: #ffffff; border: 1px solid #356783; border-radius: 7px; padding: 9px 12px; min-height: 20px; font-weight: 600; }
+        QWidget#PosPage QPushButton:hover { background: #356783; }
+        QWidget#PosPage QPushButton:disabled { background: #292929; color: #777777; border-color: #292929; }
+        QScrollArea { border: 0; background: #000000; }
     )");
 }
 
@@ -195,11 +171,11 @@ QWidget *PosWindow::createRolePage()
 
     QLabel *title = new QLabel("Pazarla Point of Sale", page);
     title->setAlignment(Qt::AlignCenter);
-    title->setStyleSheet("font-size: 30px; font-weight: bold; color: #2b2e3b;");
+    title->setStyleSheet("font-size: 30px; font-weight: 700; color: #ffffff;");
 
     QLabel *subtitle = new QLabel("Choose how this terminal is being used.", page);
     subtitle->setAlignment(Qt::AlignCenter);
-    subtitle->setStyleSheet("font-size: 15px; color: #6b7280;");
+    subtitle->setStyleSheet("font-size: 15px; color: #bdbdbd;");
 
     QPushButton *cashier = new QPushButton("Cashier", page);
     QPushButton *manager = new QPushButton("Manager", page);
@@ -227,13 +203,13 @@ QWidget *PosWindow::createPosPage()
     page->setObjectName("PosPage");
 
     QVBoxLayout *pageLayout = new QVBoxLayout(page);
-    pageLayout->setContentsMargins(18, 18, 18, 18);
-    pageLayout->setSpacing(10);
+    pageLayout->setContentsMargins(20, 18, 20, 18);
+    pageLayout->setSpacing(12);
 
     // --- top bar -----------------------------------------------------------
     QHBoxLayout *topBar = new QHBoxLayout();
     roleLabel_ = new QLabel("Cashier", page);
-    roleLabel_->setStyleSheet("font-size: 16px; font-weight: bold; color: #2b2e3b;");
+    roleLabel_->setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;");
     QPushButton *switchRoleButton = new QPushButton("Switch Role", page);
     switchRoleButton->setMaximumWidth(120);
     topBar->addWidget(roleLabel_);
@@ -250,16 +226,18 @@ QWidget *PosWindow::createPosPage()
     left->setSpacing(8);
 
     cameraPreview_ = new QVideoWidget(page);
-    cameraPreview_->setMinimumSize(360, 260);
+    cameraPreview_->setMinimumSize(260, 180);
+    cameraPreview_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     cameraPreview_->hide();
     left->addWidget(cameraPreview_);
 
     cameraPlaceholder_ = new QLabel(
         "Camera off\n\nUse Start Camera or enter a barcode.", page);
-    cameraPlaceholder_->setMinimumSize(360, 260);
+    cameraPlaceholder_->setMinimumSize(260, 180);
+    cameraPlaceholder_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     cameraPlaceholder_->setAlignment(Qt::AlignCenter);
     cameraPlaceholder_->setStyleSheet(
-        "background: #111827; color: #d1d5db; border-radius: 8px;"
+        "background: #101010; color: #bdbdbd; border: 1px solid #303030; border-radius: 8px;"
         "font-size: 14px; padding: 12px;");
     left->addWidget(cameraPlaceholder_);
 
@@ -311,7 +289,8 @@ QWidget *PosWindow::createPosPage()
     QVBoxLayout *specsLayout = new QVBoxLayout(specsBox);
     specsView_ = new QTextEdit(specsBox);
     specsView_->setReadOnly(true);
-    specsView_->setMinimumHeight(150);
+    specsView_->setMinimumHeight(90);
+    specsView_->setMaximumHeight(180);
     specsView_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     specsView_->setPlaceholderText("Scan or enter a barcode to see the product.");
     specsLayout->addWidget(specsView_);
@@ -330,11 +309,15 @@ QWidget *PosWindow::createPosPage()
     cartTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     cartTable_->setSelectionMode(QAbstractItemView::SingleSelection);
     cartTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    cartTable_->setAlternatingRowColors(true);
+    cartTable_->verticalHeader()->setVisible(false);
+    cartTable_->verticalHeader()->setDefaultSectionSize(34);
+    cartTable_->horizontalHeader()->setMinimumSectionSize(62);
     right->addWidget(cartTable_, 1);
 
     totalsLabel_ = new QLabel(page);
     totalsLabel_->setStyleSheet(
-        "font-size: 15px; font-weight: bold; color: #2b2e3b; padding: 4px;");
+        "font-size: 15px; font-weight: bold; color: #ffffff; padding: 4px;");
     right->addWidget(totalsLabel_);
 
     QGroupBox *customerBox = new QGroupBox("Customer & Payment", page);
@@ -358,14 +341,14 @@ QWidget *PosWindow::createPosPage()
     billButton_->setEnabled(false);
     right->addWidget(billButton_);
 
-    mainRow->addLayout(left, 0);
-    mainRow->addLayout(right, 1);
+    mainRow->addLayout(left, 4);
+    mainRow->addLayout(right, 6);
     pageLayout->addLayout(mainRow, 1);
 
     // --- recent orders -----------------------------------------------------
     QHBoxLayout *recentHeader = new QHBoxLayout();
     QLabel *recentLabel = new QLabel("Recent Orders", page);
-    recentLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #2b2e3b;");
+    recentLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #ffffff;");
     QPushButton *refreshButton = new QPushButton("Refresh", page);
     refreshButton->setMaximumWidth(100);
     recentHeader->addWidget(recentLabel);
@@ -377,11 +360,15 @@ QWidget *PosWindow::createPosPage()
     recentTable_->setHorizontalHeaderLabels({"Order ID", "Customer", "Status", "Amount"});
     recentTable_->horizontalHeader()->setStretchLastSection(true);
     recentTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    recentTable_->setMaximumHeight(130);
+    recentTable_->setMinimumHeight(90);
+    recentTable_->setMaximumHeight(150);
+    recentTable_->setAlternatingRowColors(true);
+    recentTable_->verticalHeader()->setVisible(false);
     pageLayout->addWidget(recentTable_);
 
     // --- manager-only tools ------------------------------------------------
     managerTools_ = new QGroupBox("Manager Tools", page);
+    managerTools_->setStyleSheet("QGroupBox { border: 1px solid #285a49; background: #0d1d18; } QGroupBox::title { color: #ffffff; }");
     QHBoxLayout *managerLayout = new QHBoxLayout(managerTools_);
     QPushButton *reloadButton = new QPushButton("Reload Product.txt", managerTools_);
     managerLayout->addWidget(reloadButton);
@@ -390,7 +377,7 @@ QWidget *PosWindow::createPosPage()
     pageLayout->addWidget(managerTools_);
 
     statusLabel_ = new QLabel("Ready.", page);
-    statusLabel_->setStyleSheet("color: #4b5563;");
+    statusLabel_->setStyleSheet("color: #bdbdbd;");
     pageLayout->addWidget(statusLabel_);
 
     // --- camera ------------------------------------------------------------
@@ -488,6 +475,128 @@ QWidget *PosWindow::createPosPage()
 
     refreshRecentOrders();
     updateCart();
+
+    // A scroll area prevents the lower controls from being clipped on
+    // shorter displays while keeping the original widget hierarchy intact.
+    QScrollArea *scrollArea = new QScrollArea(this);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setWidget(page);
+    return scrollArea;
+}
+
+QWidget *PosWindow::createManagerPage()
+{
+    QWidget *page = new QWidget(this);
+    page->setObjectName("ManagerPage");
+
+    QVBoxLayout *layout = new QVBoxLayout(page);
+    layout->setContentsMargins(28, 24, 28, 24);
+    layout->setSpacing(18);
+
+    QHBoxLayout *headingRow = new QHBoxLayout();
+    QVBoxLayout *headingText = new QVBoxLayout();
+    QLabel *title = new QLabel("Pazarla", page);
+    title->setStyleSheet("font-size: 30px; font-weight: 800; color: #ffffff;");
+    QLabel *subtitle = new QLabel("MANAGER DASHBOARD", page);
+    subtitle->setStyleSheet("font-size: 15px; color: #c9c9c9; letter-spacing: 1px;");
+    headingText->addWidget(title);
+    headingText->addWidget(subtitle);
+    headingRow->addLayout(headingText);
+    headingRow->addStretch();
+
+    QLabel *systemBadge = new QLabel("POS SYSTEM", page);
+    systemBadge->setStyleSheet("background: #063b22; color: #00c96b; border-radius: 15px; padding: 8px 16px; font-weight: 800;");
+    headingRow->addWidget(systemBadge, 0, Qt::AlignTop);
+    QPushButton *switchRole = new QPushButton("Switch Role", page);
+    switchRole->setMaximumWidth(130);
+    headingRow->addWidget(switchRole, 0, Qt::AlignTop);
+    layout->addLayout(headingRow);
+
+    QGridLayout *cards = new QGridLayout();
+    cards->setHorizontalSpacing(16);
+    cards->setVerticalSpacing(16);
+    const auto makeCard = [page](const QString &name, const QString &description,
+                                 const QString &color, const QString &hover) {
+        QPushButton *card = new QPushButton(page);
+        card->setMinimumHeight(150);
+        card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        card->setText(QString("%1\n\n%2").arg(name, description));
+        card->setStyleSheet(QString(
+            "QPushButton { text-align: left; white-space: pre-wrap; background: %1; color: white; border: 0; border-radius: 16px; padding: 22px; font-size: 19px; font-weight: 700; }"
+            "QPushButton:hover { background: %2; }").arg(color, hover));
+        return card;
+    };
+
+    QPushButton *products = makeCard("⬡  Products", "Manage products", "#183f37", "#225447");
+    QPushButton *inventory = makeCard("▤  Inventory", "Manage stock", "#28516d", "#356783");
+    QPushButton *categories = makeCard("▥  Categories", "Barcode management", "#79552f", "#90683b");
+    QPushButton *reports = makeCard("▰  Reports", "Sales analytics", "#59436f", "#6d5486");
+    cards->addWidget(products, 0, 0);
+    cards->addWidget(inventory, 0, 1);
+    cards->addWidget(categories, 1, 0);
+    cards->addWidget(reports, 1, 1);
+    cards->setColumnStretch(0, 1);
+    cards->setColumnStretch(1, 1);
+    cards->setRowStretch(0, 1);
+    cards->setRowStretch(1, 1);
+    layout->addLayout(cards, 1);
+
+    QFrame *separator = new QFrame(page);
+    separator->setFrameShape(QFrame::HLine);
+    separator->setStyleSheet("color: #292929;");
+    layout->addWidget(separator);
+
+    QHBoxLayout *bottomRow = new QHBoxLayout();
+    QLabel *posLabel = new QLabel("🛒  Cashier / Point of Sale", page);
+    posLabel->setStyleSheet("font-size: 19px; font-weight: 700; color: #eeeeee;");
+    bottomRow->addWidget(posLabel);
+    bottomRow->addStretch();
+    QPushButton *openCashier = new QPushButton("Open Cashier", page);
+    bottomRow->addWidget(openCashier);
+    layout->addLayout(bottomRow);
+
+    QLabel *managerStatus = new QLabel("Manager dashboard ready.", page);
+    managerStatus->setStyleSheet("color: #a7a7a7; padding-top: 4px;");
+    layout->addWidget(managerStatus);
+
+    connect(switchRole, &QPushButton::clicked, this, [this]() {
+        stopCameraInternal();
+        stack_->setCurrentIndex(0);
+    });
+    connect(openCashier, &QPushButton::clicked, this, [this]() {
+        role_ = Role::Cashier;
+        roleLabel_->setText("Cashier");
+        stack_->setCurrentIndex(1);
+        setStatus("Cashier mode.");
+    });
+    connect(products, &QPushButton::clicked, this, [this, managerStatus]() {
+        try {
+            catalog_.load();
+            managerStatus->setText("Product catalogue reloaded successfully.");
+        } catch (const std::exception &error) {
+            managerStatus->setText(QString("Could not reload products: %1").arg(error.what()));
+        }
+    });
+    connect(inventory, &QPushButton::clicked, this, [managerStatus]() {
+        managerStatus->setText("Inventory section selected.");
+    });
+    connect(categories, &QPushButton::clicked, this, [managerStatus]() {
+        managerStatus->setText("Categories section selected.");
+    });
+    connect(reports, &QPushButton::clicked, this, [this, managerStatus]() {
+        refreshRecentOrders();
+        managerStatus->setText("Reports selected. Recent sales have been refreshed.");
+    });
+
+    page->setStyleSheet(R"(
+        QWidget#ManagerPage { background: #000000; }
+        QWidget#ManagerPage QLabel { color: #ffffff; }
+        QWidget#ManagerPage QPushButton { background: #28516d; color: #ffffff; border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 700; }
+        QWidget#ManagerPage QPushButton:hover { background: #356783; }
+    )");
     return page;
 }
 
@@ -495,8 +604,8 @@ void PosWindow::selectRole(Role role)
 {
     role_ = role;
     roleLabel_->setText(role == Role::Manager ? "Manager" : "Cashier");
-    managerTools_->setVisible(role == Role::Manager);
-    stack_->setCurrentIndex(1);
+    managerTools_->setVisible(false);
+    stack_->setCurrentIndex(role == Role::Manager ? 2 : 1);
     setStatus(role == Role::Manager ? "Manager mode." : "Cashier mode.");
 }
 
