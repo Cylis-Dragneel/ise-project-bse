@@ -1,5 +1,6 @@
 #include "test_framework.h"
 
+#include "catalog/BarcodeAllocator.h"
 #include "catalog/FileProductRepository.h"
 #include "catalog/NumberFormat.h"
 #include "catalog/Product.h"
@@ -628,4 +629,45 @@ TEST_CASE(catalog_adjust_stock_is_all_or_nothing)
     CHECK(catalog.findByBarcode("428647")->availableQuantity() == milkBefore);
 
     std::remove(catalogPath);
+}
+
+TEST_CASE(barcode_allocator_returns_next_free_suffix)
+{
+    CHECK_EQ(BarcodeAllocator::next("10", {}), std::string("100001"));
+    CHECK_EQ(BarcodeAllocator::next("10", {"100001", "100003"}),
+             std::string("100002"));
+
+    // Other categories, the reserved 0000 suffix and malformed barcodes are
+    // ignored, so the first free suffix is still 0001.
+    CHECK_EQ(BarcodeAllocator::next("10", {"119999", "100000", "10abcd", "10001"}),
+             std::string("100001"));
+
+    // A gap left by a deleted product is reused.
+    CHECK_EQ(BarcodeAllocator::next("42", {"420002", "420004"}),
+             std::string("420001"));
+}
+
+TEST_CASE(barcode_allocator_rejects_invalid_category_ids)
+{
+    CHECK_THROWS_AS(BarcodeAllocator::next("09", {}), std::invalid_argument);
+    CHECK_THROWS_AS(BarcodeAllocator::next("00", {}), std::invalid_argument);
+    CHECK_THROWS_AS(BarcodeAllocator::next("100", {}), std::invalid_argument);
+    CHECK_THROWS_AS(BarcodeAllocator::next("aa", {}), std::invalid_argument);
+    CHECK_THROWS_AS(BarcodeAllocator::next("", {}), std::invalid_argument);
+}
+
+TEST_CASE(barcode_allocator_reports_a_full_category)
+{
+    std::vector<std::string> existing;
+    for (int suffix = 1; suffix <= 9999; ++suffix)
+    {
+        std::string digits = std::to_string(suffix);
+        while (digits.size() < 4)
+        {
+            digits.insert(digits.begin(), '0');
+        }
+        existing.push_back("10" + digits);
+    }
+
+    CHECK_THROWS_AS(BarcodeAllocator::next("10", existing), std::runtime_error);
 }
