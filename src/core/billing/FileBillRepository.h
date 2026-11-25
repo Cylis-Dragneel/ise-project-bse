@@ -11,6 +11,10 @@ class FileBillRepository : public IBillRepository
 private:
     std::string filePath_;
 
+protected:
+    virtual bool renameFile(const std::string& from, const std::string& to);
+    virtual bool removeFile(const std::string& path);
+
 public:
     explicit FileBillRepository(const std::string& filePath = "Bill.txt");
 
@@ -23,6 +27,10 @@ class FileBillDetailRepository : public IBillDetailRepository
 {
 private:
     std::string filePath_;
+
+protected:
+    virtual bool renameFile(const std::string& from, const std::string& to);
+    virtual bool removeFile(const std::string& path);
 
 public:
     explicit FileBillDetailRepository(const std::string& filePath = "BillDetail.txt");

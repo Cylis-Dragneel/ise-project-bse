@@ -83,9 +83,9 @@ Implemented and tested core services currently include:
 versus persisted bill totals, calendar grouping, custom ranges, discounts, and
 item rankings.
 
-The Qt-free suite currently passes 118/118 tests. The cashier/manager UI and
-final billing/PDF integration are still being integrated around Person C's PR
-#13 and Person D's pending UI work.
+The Qt-free suite currently passes 113/113 tests after restoring billing edge
+cases removed during PR #13. The cashier/manager UI and final billing/PDF
+integration are still being integrated with Person D's pending UI work.
 
 ## Team workflow
 

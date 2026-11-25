@@ -1,6 +1,7 @@
 #include "BillRecordCodec.h"
 
 #include "catalog/NumberFormat.h"
+#include "util/DateUtils.h"
 
 #include <cctype>
 #include <sstream>
@@ -146,30 +147,12 @@ vector<string> tokenizeRecord(const string& recordIn)
 
 bool isValidDateFormat(const string& d)
 {
-    if (d.size() != 10 || d[4] != '-' || d[7] != '-')
-    {
-        return false;
-    }
-    for (std::size_t i = 0; i < d.size(); ++i)
-    {
-        if (i == 4 || i == 7) continue;
-        if (d[i] < '0' || d[i] > '9') return false;
-    }
-    return true;
+    return DateUtils::isValidDate(d);
 }
 
 bool isValidTimeFormat(const string& t)
 {
-    if (t.size() != 8 || t[2] != ':' || t[5] != ':')
-    {
-        return false;
-    }
-    for (std::size_t i = 0; i < t.size(); ++i)
-    {
-        if (i == 2 || i == 5) continue;
-        if (t[i] < '0' || t[i] > '9') return false;
-    }
-    return true;
+    return DateUtils::isValidTime(t);
 }
 
 } // namespace

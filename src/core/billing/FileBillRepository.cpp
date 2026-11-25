@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
@@ -38,9 +39,20 @@ string readWholeFile(const string& path, bool& exists)
     return content;
 }
 
-void atomicWriteAll(const string& filePath, const vector<string>& formattedLines)
+bool fileExists(const string& path)
+{
+    std::ifstream input(path.c_str());
+    return input.good();
+}
+
+void atomicWriteAll(
+    const string& filePath,
+    const vector<string>& formattedLines,
+    const std::function<bool(const string&, const string&)>& renameFile,
+    const std::function<bool(const string&)>& removeFile)
 {
     const string tempPath = filePath + ".tmp";
+    const string backupPath = filePath + ".bak";
     std::ofstream output(tempPath.c_str(), std::ios::out | std::ios::trunc);
     if (!output)
     {
@@ -56,16 +68,35 @@ void atomicWriteAll(const string& filePath, const vector<string>& formattedLines
     if (!output)
     {
         output.close();
-        std::remove(tempPath.c_str());
+        removeFile(tempPath);
         throw std::runtime_error("error while writing temp file: " + tempPath);
     }
     output.close();
 
-    std::remove(filePath.c_str());
-    if (std::rename(tempPath.c_str(), filePath.c_str()) != 0)
+    const bool hadOriginal = fileExists(filePath);
+    if (hadOriginal)
     {
-        std::remove(tempPath.c_str());
-        throw std::runtime_error("failed to rename temp file to: " + filePath);
+        removeFile(backupPath);
+        if (!renameFile(filePath, backupPath))
+        {
+            removeFile(tempPath);
+            throw std::runtime_error("cannot create backup for " + filePath);
+        }
+    }
+
+    if (!renameFile(tempPath, filePath))
+    {
+        if (hadOriginal)
+        {
+            renameFile(backupPath, filePath);
+        }
+        removeFile(tempPath);
+        throw std::runtime_error("failed to replace " + filePath);
+    }
+
+    if (hadOriginal)
+    {
+        removeFile(backupPath);
     }
 }
 
@@ -74,6 +105,16 @@ void atomicWriteAll(const string& filePath, const vector<string>& formattedLines
 FileBillRepository::FileBillRepository(const string& filePath)
     : filePath_(filePath)
 {
+}
+
+bool FileBillRepository::renameFile(const string& from, const string& to)
+{
+    return std::rename(from.c_str(), to.c_str()) == 0;
+}
+
+bool FileBillRepository::removeFile(const string& path)
+{
+    return std::remove(path.c_str()) == 0;
 }
 
 vector<Bill> FileBillRepository::loadAll()
@@ -132,7 +173,12 @@ void FileBillRepository::saveAll(const vector<Bill>& bills)
         formatted.push_back(BillRecordCodec::format(bill));
     }
 
-    atomicWriteAll(filePath_, formatted);
+    atomicWriteAll(
+        filePath_, formatted,
+        [this](const string& from, const string& to) {
+            return renameFile(from, to);
+        },
+        [this](const string& path) { return removeFile(path); });
 }
 
 void FileBillRepository::append(const Bill& bill)
@@ -152,6 +198,16 @@ void FileBillRepository::append(const Bill& bill)
 FileBillDetailRepository::FileBillDetailRepository(const string& filePath)
     : filePath_(filePath)
 {
+}
+
+bool FileBillDetailRepository::renameFile(const string& from, const string& to)
+{
+    return std::rename(from.c_str(), to.c_str()) == 0;
+}
+
+bool FileBillDetailRepository::removeFile(const string& path)
+{
+    return std::remove(path.c_str()) == 0;
 }
 
 vector<BillLine> FileBillDetailRepository::loadAll()
@@ -197,7 +253,12 @@ void FileBillDetailRepository::saveAll(const vector<BillLine>& lines)
     {
         formatted.push_back(BillDetailRecordCodec::format(line));
     }
-    atomicWriteAll(filePath_, formatted);
+    atomicWriteAll(
+        filePath_, formatted,
+        [this](const string& from, const string& to) {
+            return renameFile(from, to);
+        },
+        [this](const string& path) { return removeFile(path); });
 }
 
 void FileBillDetailRepository::append(const vector<BillLine>& lines)

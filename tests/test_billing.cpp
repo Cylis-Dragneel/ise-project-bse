@@ -127,6 +127,29 @@ public:
     }
 };
 
+class RenameFailingBillRepository : public FileBillRepository
+{
+public:
+    explicit RenameFailingBillRepository(const std::string &path)
+        : FileBillRepository(path)
+    {
+    }
+
+    int failOnRenameCall = 0;
+    int renameCalls = 0;
+
+protected:
+    bool renameFile(const std::string &from, const std::string &to) override
+    {
+        ++renameCalls;
+        if (failOnRenameCall != 0 && renameCalls == failOnRenameCall)
+        {
+            return false;
+        }
+        return FileBillRepository::renameFile(from, to);
+    }
+};
+
 } // namespace
 
 TEST_CASE(bill_calculator_rounds_money_to_two_decimals)
@@ -465,6 +488,109 @@ TEST_CASE(billing_end_to_end_with_order_detail_file)
     const std::vector<Bill> loaded = service.loadBills();
     CHECK_EQ(loaded.size(), static_cast<std::size_t>(1));
     CHECK_EQ(loaded[0].lines.size(), static_cast<std::size_t>(2));
+
+    removeAllTempFiles();
+}
+
+TEST_CASE(bill_record_rejects_invalid_calendar_dates_and_times)
+{
+    const std::string prefix =
+        "000000001 Ali 00011124 100 0 0 100 100 0 paid 0 0 ";
+    CHECK_THROWS_AS(BillRecordCodec::parse(prefix + "2026-02-30 11:45:00 #"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(BillRecordCodec::parse(prefix + "2024-02-29 24:00:00 #"),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(BillRecordCodec::parse(prefix + "2023-02-29 11:60:00 #"),
+                    std::invalid_argument);
+}
+
+TEST_CASE(file_bill_repository_round_trips_and_preserves_data_on_rename_failure)
+{
+    removeAllTempFiles();
+
+    Bill bill;
+    bill.billId = "000000001";
+    bill.customerName = "Ali Khan";
+    bill.orderId = "00011124";
+    bill.totalPayable = 100.0;
+    bill.amountReceived = 100.0;
+    bill.paymentStatus = "paid";
+    bill.billDate = "2026-11-24";
+    bill.billTime = "11:45:00";
+
+    FileBillRepository repository(billPath);
+    repository.saveAll({bill});
+    CHECK_EQ(repository.loadAll().size(), static_cast<std::size_t>(1));
+    const std::string before = readFile(billPath);
+
+    RenameFailingBillRepository failing(billPath);
+    failing.failOnRenameCall = 2;
+    CHECK_THROWS_AS(failing.saveAll({bill}), std::runtime_error);
+    CHECK_EQ(readFile(billPath), before);
+
+    removeAllTempFiles();
+}
+
+TEST_CASE(billing_service_rejects_unknown_barcodes_and_short_stock)
+{
+    removeAllTempFiles();
+    CatalogFixture fixture;
+    auto billRepo = std::make_shared<FileBillRepository>(billPath);
+    auto detailRepo = std::make_shared<FileBillDetailRepository>(detailPath);
+    BillingService service(fixture.catalog, billRepo, detailRepo);
+    const Order order = makeOrder();
+
+    CHECK_THROWS_AS(
+        service.generateBill(order, {makeDetail(order.orderId, 99, "111111", 1.0)},
+                            0.0, 500.0, order.date, order.time),
+        std::invalid_argument);
+    CHECK_THROWS_AS(
+        service.generateBill(order, {makeDetail(order.orderId, 5, "381093", 1.0)},
+                            0.0, 500.0, order.date, order.time),
+        std::out_of_range);
+
+    removeAllTempFiles();
+}
+
+TEST_CASE(billing_service_handles_fractional_weight_quantities)
+{
+    removeAllTempFiles();
+    CatalogFixture fixture;
+    auto billRepo = std::make_shared<FileBillRepository>(billPath);
+    auto detailRepo = std::make_shared<FileBillDetailRepository>(detailPath);
+    BillingService service(fixture.catalog, billRepo, detailRepo);
+    const Order order = makeOrder();
+
+    const Bill quote = service.quote(
+        order, {makeDetail(order.orderId, 3, "579158", 4.5)});
+    checkClose(quote.totalNoTax, 720.0);
+    checkClose(quote.totalTax, 36.0);
+    checkClose(quote.totalPayable, 756.0);
+
+    removeAllTempFiles();
+}
+
+TEST_CASE(billing_service_assigns_sequential_ids_across_generated_bills)
+{
+    removeAllTempFiles();
+    CatalogFixture fixture;
+    auto billRepo = std::make_shared<FileBillRepository>(billPath);
+    auto detailRepo = std::make_shared<FileBillDetailRepository>(detailPath);
+    BillingService service(fixture.catalog, billRepo, detailRepo);
+
+    const Order firstOrder = makeOrder("00011124");
+    const Order secondOrder = makeOrder("00021124");
+    const std::vector<OrderDetail> firstDetails = {
+        makeDetail(firstOrder.orderId, 1, "428647", 1.0)};
+    const std::vector<OrderDetail> secondDetails = {
+        makeDetail(secondOrder.orderId, 1, "428647", 1.0)};
+
+    const Bill first = service.generateBill(firstOrder, firstDetails, 0.0, 500.0,
+                                            firstOrder.date, firstOrder.time);
+    const Bill second = service.generateBill(secondOrder, secondDetails, 0.0, 500.0,
+                                             secondOrder.date, secondOrder.time);
+    CHECK_EQ(first.billId, std::string("000000001"));
+    CHECK_EQ(second.billId, std::string("000000002"));
 
     removeAllTempFiles();
 }
