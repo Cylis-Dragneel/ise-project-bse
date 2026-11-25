@@ -320,6 +320,77 @@ TEST_CASE(catalog_rolls_back_stock_when_saving_fails)
     std::remove(catalogPath);
 }
 
+TEST_CASE(catalog_adjusts_stock_and_persists_changes)
+{
+    copyFixtureTo(catalogPath);
+
+    ProductCatalog catalog(
+        std::make_shared<FileProductRepository>(catalogPath));
+    catalog.load();
+
+    // Add and remove stock for the same product.
+    catalog.adjustStock({{"428647", 10.0}, {"428647", -5.0}});
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == 55.0);
+
+    // Weight products allow fractional stock adjustments.
+    catalog.adjustStock({{"579158", 2.5}});
+    CHECK(catalog.findByBarcode("579158")->availableQuantity() == 38.0);
+
+    // Check that both changes were saved.
+    ProductCatalog reloaded(
+        std::make_shared<FileProductRepository>(catalogPath));
+    reloaded.load();
+
+    CHECK(reloaded.findByBarcode("428647")->availableQuantity() == 55.0);
+    CHECK(reloaded.findByBarcode("579158")->availableQuantity() == 38.0);
+
+    // Invalid adjustments must not partially change the catalog.
+    CHECK_THROWS_AS(
+        catalog.adjustStock({{"428647", -100.0}}),
+        std::out_of_range);
+
+    CHECK_THROWS_AS(
+        catalog.adjustStock({{"428647", 1.5}}),
+        std::invalid_argument);
+
+    CHECK_THROWS_AS(
+        catalog.adjustStock({{"111111", 5.0}}),
+        std::invalid_argument);
+
+    CHECK_THROWS_AS(
+        catalog.adjustStock({{"428647", std::numeric_limits<double>::infinity()}}),
+        std::invalid_argument);
+
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == 55.0);
+
+    std::remove(catalogPath);
+}
+
+TEST_CASE(catalog_adjust_stock_does_not_change_memory_when_saving_fails)
+{
+    copyFixtureTo(catalogPath);
+    const std::string before = readFile(catalogPath);
+
+    auto repository = std::make_shared<FailingRepository>(catalogPath);
+    ProductCatalog catalog(repository);
+    catalog.load();
+
+    // Fail the second rename during the save operation.
+    repository->failOnRenameCall = 2;
+
+    CHECK_THROWS_AS(
+        catalog.adjustStock({{"428647", 10.0}}),
+        std::runtime_error);
+
+    // Original in-memory stock and file must remain unchanged.
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == 50.0);
+    CHECK_EQ(readFile(catalogPath), before);
+
+    std::remove(catalogPath);
+}
+
+
+
 TEST_CASE(product_record_round_trips_through_the_codec)
 {
     const Product original = makeCountProduct();

@@ -16,7 +16,12 @@ struct StockRequest
     std::string barcode;
     double quantity;
 };
-
+// Positive delta adds stock; negative delta removes stock.
+struct StockChange
+{
+    std::string barcode;
+    double delta; // Positive = add stock, negative = remove stock
+};
 // The business view of the products: look up by barcode / id, check stock,
 // deduct stock when a bill is generated. Knows nothing about files or GUI.
 class ProductCatalog

@@ -158,40 +158,46 @@ void ProductCatalog::addProduct(const Product& product)
     }
 }
 
-void ProductCatalog::adjustStock(
-    const std::vector<StockChange>& changes) {
-
-    if (changes.empty()) {
+void ProductCatalog::adjustStock(const vector<StockChange>& changes)
+{
+    if (changes.empty())
         return;
+
+    // Combine changes for products with the same barcode.
+    std::map<string, double> totals;
+
+    for (const StockChange& change : changes)
+    {
+        if (!std::isfinite(change.delta))
+            throw std::invalid_argument("stock change must be finite");
+
+        totals[change.barcode] += change.delta;
+
+        if (!std::isfinite(totals[change.barcode]))
+            throw std::invalid_argument("total stock change is too large");
     }
 
-    std::vector<Product> next = products_;
+    // Make changes on a copy first.
+    vector<Product> updated = products_;
 
-    for (const StockChange& change : changes) {
+    for (const auto& entry : totals)
+    {
+        auto found = indexByBarcode_.find(entry.first);
 
-        auto it = byBarcode_.find(change.barcode);
+        if (found == indexByBarcode_.end())
+            throw std::invalid_argument(
+                "unknown product barcode: " + entry.first);
 
-        if (it == byBarcode_.end()) {
-            throw std::out_of_range(
-                "unknown product barcode: " +
-                change.barcode);
-        }
-
-        Product current = next[it->second];
-
-        if (change.delta > 0) {
-            current.addStock(change.delta);
-        }
-        else if (change.delta < 0) {
-            current.reduceStock(-change.delta);
-        }
-
-        next[it->second] = current;
+        if (entry.second > 0)
+            updated[found->second].addStock(entry.second);
+        else if (entry.second < 0)
+            updated[found->second].reduceStock(-entry.second);
     }
 
-    commit(next);
+    // Save successfully before changing the original catalog.
+    repository_->saveAll(updated);
+    products_.swap(updated);
 }
-
 
 void ProductCatalog::updateProduct(const Product& product)
 {
