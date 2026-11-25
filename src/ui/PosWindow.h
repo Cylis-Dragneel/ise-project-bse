@@ -2,6 +2,7 @@
 #define POSWINDOW_H
 
 #include <QWidget>
+#include <QString>
 
 #include <optional>
 #include <string>
@@ -43,6 +44,7 @@ public:
 
     // Called by MainWindow when another tab takes over the camera.
     void stopCamera();
+    void addScannedBarcode(const QString &barcode);
 
 signals:
     void orderSaved();

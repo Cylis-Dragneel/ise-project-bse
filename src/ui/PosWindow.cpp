@@ -133,23 +133,21 @@ PosWindow::PosWindow(QWidget *parent)
     layout->addWidget(stack_);
 
     setStyleSheet(R"(
-        QWidget#RolePage { background: #000000; }
-        QWidget#RolePage QLabel { color: #ffffff; }
-        QWidget#RolePage QPushButton { background: #183f37; color: #ffffff; border: 1px solid #286052; border-radius: 10px; min-height: 56px; min-width: 280px; padding: 10px 22px; font-size: 16px; font-weight: 700; }
-        QWidget#RolePage QPushButton:hover { background: #24594d; }
-        QWidget#PosPage { background: #000000; color: #f2f2f2; }
-        QWidget#PosPage QLabel { color: #eeeeee; }
-        QWidget#PosPage QGroupBox { background: #090909; color: #ffffff; border: 1px solid #303030; border-radius: 10px; margin-top: 12px; padding: 14px 10px 10px; }
-        QWidget#PosPage QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 5px; font-weight: 700; color: #ffffff; }
-        QWidget#PosPage QTableWidget { background: #101010; alternate-background-color: #191919; color: #eeeeee; border: 1px solid #303030; border-radius: 8px; gridline-color: #292929; selection-background-color: #28516d; selection-color: #ffffff; }
-        QWidget#PosPage QHeaderView::section { background: #183f37; color: #ffffff; font-weight: 700; border: 0; padding: 9px 6px; }
-        QWidget#PosPage QLineEdit, QWidget#PosPage QComboBox, QWidget#PosPage QDoubleSpinBox { background: #151515; border: 1px solid #3b3b3b; border-radius: 7px; padding: 8px; color: #ffffff; }
-        QWidget#PosPage QLineEdit:focus, QWidget#PosPage QComboBox:focus, QWidget#PosPage QDoubleSpinBox:focus { border: 1px solid #00a65a; }
-        QWidget#PosPage QTextEdit { background: #101010; border: 1px solid #303030; border-radius: 8px; color: #eeeeee; padding: 7px; }
-        QWidget#PosPage QPushButton { background: #28516d; color: #ffffff; border: 1px solid #356783; border-radius: 7px; padding: 9px 12px; min-height: 20px; font-weight: 600; }
-        QWidget#PosPage QPushButton:hover { background: #356783; }
-        QWidget#PosPage QPushButton:disabled { background: #292929; color: #777777; border-color: #292929; }
-        QScrollArea { border: 0; background: #000000; }
+        QWidget#RolePage, QWidget#PosPage, QWidget#ManagerPage { background: #0b1110; color: #e8f0ed; }
+        QWidget#RolePage QLabel, QWidget#PosPage QLabel, QWidget#ManagerPage QLabel { color: #e8f0ed; }
+        QWidget#RolePage QPushButton { background: #147a55; color: #fff; border: 1px solid #24966b; border-radius: 12px; min-height: 54px; min-width: 270px; padding: 10px 22px; font-size: 15px; font-weight: 700; }
+        QWidget#RolePage QPushButton:hover { background: #199568; }
+        QWidget#PosPage QGroupBox, QWidget#ManagerPage QGroupBox { background: #111a17; color: #f3f8f5; border: 1px solid #263b33; border-radius: 12px; margin-top: 13px; padding: 15px 12px 11px; }
+        QWidget#PosPage QGroupBox::title, QWidget#ManagerPage QGroupBox::title { subcontrol-origin: margin; left: 13px; padding: 0 6px; color: #9ad9bd; font-weight: 700; }
+        QWidget#PosPage QTableWidget, QWidget#ManagerPage QTableWidget { background: #101815; alternate-background-color: #15211c; color: #e8f0ed; border: 1px solid #263b33; border-radius: 10px; gridline-color: #20342c; selection-background-color: #176b4b; selection-color: #fff; }
+        QWidget#PosPage QHeaderView::section, QWidget#ManagerPage QHeaderView::section { background: #183b2d; color: #eafff3; font-weight: 700; border: 0; padding: 10px 7px; }
+        QWidget#PosPage QLineEdit, QWidget#PosPage QComboBox, QWidget#PosPage QDoubleSpinBox { background: #0d1512; border: 1px solid #2b4238; border-radius: 8px; padding: 9px; color: #f4faf6; min-height: 20px; }
+        QWidget#PosPage QLineEdit:focus, QWidget#PosPage QComboBox:focus, QWidget#PosPage QDoubleSpinBox:focus { border: 1px solid #35c58a; }
+        QWidget#PosPage QTextEdit { background: #0d1512; border: 1px solid #263b33; border-radius: 9px; color: #e8f0ed; padding: 8px; }
+        QWidget#PosPage QPushButton, QWidget#ManagerPage QPushButton { background: #1b6b4d; color: #fff; border: 1px solid #27845f; border-radius: 8px; padding: 10px 14px; min-height: 20px; font-weight: 650; }
+        QWidget#PosPage QPushButton:hover, QWidget#ManagerPage QPushButton:hover { background: #25845f; }
+        QWidget#PosPage QPushButton:disabled { background: #26332d; color: #75847c; border-color: #26332d; }
+        QScrollArea { border: 0; background: #0b1110; }
     )");
 }
 
@@ -203,7 +201,7 @@ QWidget *PosWindow::createPosPage()
     page->setObjectName("PosPage");
 
     QVBoxLayout *pageLayout = new QVBoxLayout(page);
-    pageLayout->setContentsMargins(20, 18, 20, 18);
+    pageLayout->setContentsMargins(24, 20, 24, 20);
     pageLayout->setSpacing(12);
 
     // --- top bar -----------------------------------------------------------
@@ -219,11 +217,11 @@ QWidget *PosWindow::createPosPage()
 
     // --- main row ----------------------------------------------------------
     QHBoxLayout *mainRow = new QHBoxLayout();
-    mainRow->setSpacing(14);
+    mainRow->setSpacing(18);
 
     // Left: camera, scan controls, specs.
     QVBoxLayout *left = new QVBoxLayout();
-    left->setSpacing(8);
+    left->setSpacing(11);
 
     cameraPreview_ = new QVideoWidget(page);
     cameraPreview_->setMinimumSize(260, 180);
@@ -300,7 +298,7 @@ QWidget *PosWindow::createPosPage()
 
     // Right: cart, totals, customer, bill.
     QVBoxLayout *right = new QVBoxLayout();
-    right->setSpacing(8);
+    right->setSpacing(11);
 
     cartTable_ = new QTableWidget(0, 7, page);
     cartTable_->setHorizontalHeaderLabels(
@@ -493,7 +491,7 @@ QWidget *PosWindow::createManagerPage()
     page->setObjectName("ManagerPage");
 
     QVBoxLayout *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 24, 28, 24);
+    layout->setContentsMargins(32, 28, 32, 28);
     layout->setSpacing(18);
 
     QHBoxLayout *headingRow = new QHBoxLayout();
@@ -521,11 +519,11 @@ QWidget *PosWindow::createManagerPage()
     const auto makeCard = [page](const QString &name, const QString &description,
                                  const QString &color, const QString &hover) {
         QPushButton *card = new QPushButton(page);
-        card->setMinimumHeight(150);
+        card->setMinimumHeight(165);
         card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         card->setText(QString("%1\n\n%2").arg(name, description));
         card->setStyleSheet(QString(
-            "QPushButton { text-align: left; white-space: pre-wrap; background: %1; color: white; border: 0; border-radius: 16px; padding: 22px; font-size: 19px; font-weight: 700; }"
+            "QPushButton { text-align: left; white-space: pre-wrap; background: %1; color: white; border: 1px solid #426b58; border-radius: 16px; padding: 24px; font-size: 19px; font-weight: 700; }"
             "QPushButton:hover { background: %2; }").arg(color, hover));
         return card;
     };
@@ -591,12 +589,6 @@ QWidget *PosWindow::createManagerPage()
         managerStatus->setText("Reports selected. Recent sales have been refreshed.");
     });
 
-    page->setStyleSheet(R"(
-        QWidget#ManagerPage { background: #000000; }
-        QWidget#ManagerPage QLabel { color: #ffffff; }
-        QWidget#ManagerPage QPushButton { background: #28516d; color: #ffffff; border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 700; }
-        QWidget#ManagerPage QPushButton:hover { background: #356783; }
-    )");
     return page;
 }
 
@@ -654,6 +646,22 @@ void PosWindow::stopCamera()
     {
         stopCameraInternal();
     }
+}
+
+// Reuse the normal lookup and stock-check path for barcodes decoded in the
+// separate Barcode Tool tab.
+void PosWindow::addScannedBarcode(const QString &barcode)
+{
+    if (barcode.isEmpty())
+    {
+        return;
+    }
+
+    role_ = Role::Cashier;
+    roleLabel_->setText("Cashier");
+    stack_->setCurrentIndex(1);
+    barcodeInput_->setText(barcode);
+    addBarcode(barcode.toStdString(), 1.0);
 }
 
 bool PosWindow::addBarcode(const std::string &barcode, double quantity)

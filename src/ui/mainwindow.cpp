@@ -30,7 +30,8 @@ MainWindow::MainWindow(QWidget *parent)
     setMinimumSize(900, 620);
     resize(1280, 820);
 
-    QTabWidget *tabs = new QTabWidget(this);
+    tabs_ = new QTabWidget(this);
+    QTabWidget *tabs = tabs_;
     tabs->setDocumentMode(true);
     tabs->setMovable(false);
     setCentralWidget(tabs);
@@ -139,7 +140,12 @@ MainWindow::MainWindow(QWidget *parent)
                 decodedNumber->setText(
                     QString("Decoded Number: %1")
                         .arg(QString::fromStdString(barcode)));
-                statusBar()->showMessage("Barcode decoded from camera.");
+                statusBar()->showMessage("Barcode decoded. Item sent to the POS cart.");
+                if (posWindow != nullptr)
+                {
+                    posWindow->addScannedBarcode(QString::fromStdString(barcode));
+                    tabs_->setCurrentIndex(1);
+                }
 
                 // Freeze the scan loop after the first success. The camera
                 // preview stays open; the Stop button still decodes the last
@@ -167,22 +173,22 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Pazarla dark dashboard palette (matching the supplied reference).
     setStyleSheet(R"(
-        QMainWindow, QWidget#BarcodePage { background: #000000; color: #f2f2f2; }
-        QTabWidget::pane { border: 1px solid #242424; background: #000000; }
-        QTabBar::tab { background: #111111; color: #c9c9c9; padding: 13px 24px; border: 0; margin-right: 2px; font-weight: 600; }
-        QTabBar::tab:selected { background: #183f37; color: #ffffff; border-bottom: 2px solid #00a65a; }
-        QTabBar::tab:hover:!selected { background: #242424; color: #ffffff; }
-        QLabel { color: #f0f0f0; }
-        QLabel#PageHeading { color: #ffffff; font-size: 26px; font-weight: 700; padding: 8px; }
-        QGroupBox { background: #090909; color: #eeeeee; border: 1px solid #303030; border-radius: 10px; margin-top: 12px; padding: 18px 12px 12px; font-size: 14px; font-weight: 700; }
-        QGroupBox::title { subcontrol-origin: margin; left: 14px; padding: 0 6px; color: #ffffff; }
-        QLineEdit, QComboBox, QDoubleSpinBox { background: #151515; color: #ffffff; border: 1px solid #3b3b3b; border-radius: 7px; padding: 9px 10px; min-height: 20px; selection-background-color: #28516d; }
-        QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border: 1px solid #00a65a; }
-        QPushButton { background: #28516d; color: #ffffff; border: 1px solid #356783; border-radius: 7px; padding: 10px 16px; min-height: 20px; font-weight: 600; }
-        QPushButton:hover { background: #356783; }
-        QPushButton:pressed { background: #183f37; }
-        QPushButton:disabled { background: #292929; color: #777777; border-color: #292929; }
-        QStatusBar { background: #090909; color: #c9c9c9; border-top: 1px solid #292929; }
+        QMainWindow, QWidget#BarcodePage { background: #0b1110; color: #e8f0ed; }
+        QTabWidget::pane { border: 1px solid #263b33; background: #0b1110; }
+        QTabBar::tab { background: #111a17; color: #aebeb6; padding: 14px 26px; border: 0; margin-right: 3px; font-weight: 700; }
+        QTabBar::tab:selected { background: #174b36; color: #fff; border-bottom: 3px solid #35c58a; }
+        QTabBar::tab:hover:!selected { background: #1b2922; color: #fff; }
+        QLabel { color: #e8f0ed; }
+        QLabel#PageHeading { color: #fff; font-size: 27px; font-weight: 800; padding: 10px; }
+        QGroupBox { background: #111a17; color: #f3f8f5; border: 1px solid #263b33; border-radius: 12px; margin-top: 13px; padding: 18px 14px 14px; font-size: 14px; font-weight: 700; }
+        QGroupBox::title { subcontrol-origin: margin; left: 14px; padding: 0 6px; color: #9ad9bd; }
+        QLineEdit, QComboBox, QDoubleSpinBox { background: #0d1512; color: #fff; border: 1px solid #2b4238; border-radius: 8px; padding: 10px; min-height: 20px; selection-background-color: #176b4b; }
+        QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border: 1px solid #35c58a; }
+        QPushButton { background: #1b6b4d; color: #fff; border: 1px solid #27845f; border-radius: 8px; padding: 11px 17px; min-height: 20px; font-weight: 700; }
+        QPushButton:hover { background: #25845f; }
+        QPushButton:pressed { background: #124d37; }
+        QPushButton:disabled { background: #26332d; color: #75847c; border-color: #26332d; }
+        QStatusBar { background: #101815; color: #b9c9c1; border-top: 1px solid #263b33; }
     )");
 
     // Button connections
@@ -464,9 +470,10 @@ bool MainWindow::decodeImage(const QImage &image)
     decodedNumber->setText(
         QString("Decoded Number: %1").arg(QString::fromStdString(barcode)));
 
-    // TODO(integration): forward `barcode` to the POS order-entry or
-    // description screen once Person D's PosWindow is merged. ProductResolver
-    // (src/core/catalog) already produces the product, its description and the
-    // user-facing error message; the UI only has to display them.
+    if (posWindow != nullptr)
+    {
+        posWindow->addScannedBarcode(QString::fromStdString(barcode));
+        tabs_->setCurrentIndex(1);
+    }
     return true;
 }
