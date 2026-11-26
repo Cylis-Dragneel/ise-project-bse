@@ -1,6 +1,7 @@
 #include "PosWindow.h"
 
 #include "InventoryDialog.h"
+#include "OrdersDialog.h"
 #include "ProductDescriptionDialog.h"
 #include "ProductsDialog.h"
 #include "ReportsDialog.h"
@@ -344,8 +345,10 @@ QWidget *PosWindow::createPosPage()
     QHBoxLayout *orderActionRow = new QHBoxLayout();
     holdButton_ = new QPushButton("Hold Order", page);
     resumeButton_ = new QPushButton("Resume Order", page);
+    QPushButton *openOrderButton = new QPushButton("Open Order", page);
     orderActionRow->addWidget(holdButton_);
     orderActionRow->addWidget(resumeButton_);
+    orderActionRow->addWidget(openOrderButton);
     right->addLayout(orderActionRow);
 
     billButton_ = new QPushButton("Generate Bill", page);
@@ -450,6 +453,13 @@ QWidget *PosWindow::createPosPage()
             this, &PosWindow::holdCurrentOrder);
     connect(resumeButton_, &QPushButton::clicked,
             this, &PosWindow::resumeOrder);
+    connect(openOrderButton, &QPushButton::clicked, this, [this]() {
+        OrdersDialog dlg(orderPath_, this);
+        if (dlg.exec() == QDialog::Accepted && !dlg.selectedOrderId().empty())
+        {
+            openOrderForEditing(dlg.selectedOrderId());
+        }
+    });
     connect(refreshButton, &QPushButton::clicked,
             this, &PosWindow::refreshRecentOrders);
     connect(reloadButton, &QPushButton::clicked, this, [this]() {
@@ -541,11 +551,13 @@ QWidget *PosWindow::createManagerPage()
     QPushButton *categories = makeCard("▥  Categories", "Barcode management", "#79552f", "#90683b");
     QPushButton *reports = makeCard("▰  Reports", "Sales analytics", "#59436f", "#6d5486");
     QPushButton *seasons = makeCard("❄  Seasons", "Discount periods", "#5a4d7a", "#6f6195");
+    QPushButton *orders = makeCard("▦  Orders", "Open and edit orders", "#3f4f6d", "#52658a");
     cards->addWidget(products, 0, 0);
     cards->addWidget(inventory, 0, 1);
     cards->addWidget(categories, 1, 0);
     cards->addWidget(reports, 1, 1);
-    cards->addWidget(seasons, 2, 0, 1, 2);
+    cards->addWidget(seasons, 2, 0);
+    cards->addWidget(orders, 2, 1);
     cards->setColumnStretch(0, 1);
     cards->setColumnStretch(1, 1);
     cards->setRowStretch(0, 1);
@@ -602,6 +614,13 @@ QWidget *PosWindow::createManagerPage()
         SeasonsDialog dlg(&seasons_, this);
         dlg.exec();
     });
+    connect(orders, &QPushButton::clicked, this, [this]() {
+        OrdersDialog dlg(orderPath_, this);
+        if (dlg.exec() == QDialog::Accepted && !dlg.selectedOrderId().empty())
+        {
+            openOrderForEditing(dlg.selectedOrderId());
+        }
+    });
 
     return page;
 }
@@ -610,7 +629,7 @@ void PosWindow::selectRole(Role role)
 {
     role_ = role;
     roleLabel_->setText(role == Role::Manager ? "Manager" : "Cashier");
-    managerTools_->setVisible(false);
+    managerTools_->setVisible(role == Role::Manager);
     stack_->setCurrentIndex(role == Role::Manager ? 2 : 1);
     setStatus(role == Role::Manager ? "Manager mode." : "Cashier mode.");
 }
@@ -669,8 +688,14 @@ void PosWindow::addScannedBarcode(const QString &barcode)
         return;
     }
 
-    role_ = Role::Cashier;
-    roleLabel_->setText("Cashier");
+    // A scan starts a fresh cashier cart, but must not demote a manager who is
+    // in the middle of editing an existing order.
+    if (!editingExistingOrder_)
+    {
+        role_ = Role::Cashier;
+        roleLabel_->setText("Cashier");
+        managerTools_->setVisible(false);
+    }
     stack_->setCurrentIndex(1);
     barcodeInput_->setText(barcode);
     addBarcode(barcode.toStdString(), 1.0);
@@ -870,7 +895,8 @@ void PosWindow::updateTotals()
 
     try
     {
-        const Bill quote = billing_.quote(probe, details);
+        const Bill quote = billing_.quote(probe, details, 0.0, 0.0, "", "",
+                                          !editingExistingOrder_);
         totalsLabel_->setText(
             QString("Subtotal %1 | Tax %2 | Discount %3 | Seasonal %4 | Total %5")
                 .arg(QString::fromStdString(NumberFormat::money(quote.totalNoTax)))
@@ -1059,6 +1085,78 @@ void PosWindow::resumeOrder()
                   .arg(QString::fromStdString(loaded.orderId)));
 }
 
+void PosWindow::openOrderForEditing(const std::string &orderId)
+{
+    if (!cart_.empty() &&
+        (!editingExistingOrder_ || activeOrder_.orderId != orderId))
+    {
+        if (QMessageBox::question(this, "Open Order",
+                "Replace the current cart with this order?")
+            != QMessageBox::Yes)
+        {
+            return;
+        }
+    }
+
+    Order loaded;
+    if (!OrderManager::findOrder(orderId, loaded, orderPath_))
+    {
+        setStatus(QString("Order %1 was not found.")
+                      .arg(QString::fromStdString(orderId)));
+        return;
+    }
+
+    const std::vector<OrderDetail> details =
+        OrderManager::loadOrderDetails(orderId, detailPath_);
+    if (details.empty())
+    {
+        setStatus("That order has no items.");
+        return;
+    }
+
+    std::vector<CartLine> loadedCart;
+    for (const OrderDetail &d : details)
+    {
+        const Product *p = catalog_.findByBarcode(d.productBarcode);
+        if (p == nullptr)
+        {
+            p = catalog_.findById(d.productId);
+        }
+        if (p != nullptr)
+        {
+            loadedCart.push_back(CartLine{*p, d.quantity});
+        }
+    }
+
+    if (loadedCart.empty())
+    {
+        setStatus("None of that order's products are in Product.txt.");
+        return;
+    }
+
+    cart_ = loadedCart;
+    activeOrder_ = loaded;
+    editingExistingOrder_ = true;
+    managerApproved_ = false;
+
+    customerInput_->setText(QString::fromStdString(loaded.customerName));
+    contactInput_->setText(QString::fromStdString(loaded.contact));
+    merchantInput_->setText(QString::fromStdString(loaded.merchant));
+    const int modeIndex = paymentModeInput_->findText(
+        QString::fromStdString(loaded.paymentMode));
+    if (modeIndex >= 0)
+    {
+        paymentModeInput_->setCurrentIndex(modeIndex);
+    }
+
+    managerTools_->setVisible(role_ == Role::Manager);
+    stack_->setCurrentIndex(1);
+    updateCart();
+    setStatus(QString("Editing order %1 (%2).")
+                  .arg(QString::fromStdString(loaded.orderId),
+                       QString::fromStdString(loaded.status)));
+}
+
 void PosWindow::generateBill()
 {
     if (cart_.empty())
@@ -1114,7 +1212,8 @@ void PosWindow::generateBill()
     Bill quote;
     try
     {
-        quote = billing_.quote(order, details);
+        quote = billing_.quote(order, details, 0.0, 0.0, "", "",
+                               !editingExistingOrder_);
         order.paymentAmount = quote.totalPayable;
     }
     catch (const std::exception &e)
@@ -1141,15 +1240,27 @@ void PosWindow::generateBill()
                                          managerApproved_, adjuster, paths);
         if (result == OrderResult::NeedsApproval)
         {
+            if (role_ != Role::Manager)
+            {
+                QMessageBox::warning(this, "Manager Approval",
+                    "This paid order is inside the 7-day edit window and needs "
+                    "manager approval.\nSwitch to the Manager role and open the "
+                    "order again to edit it.");
+                return;
+            }
             if (QMessageBox::question(this, "Manager Approval",
                     "This is a paid order inside the 7-day edit window.\n"
-                    "Manager approval is required to edit it. Approve?")
+                    "Approve this edit?")
                 == QMessageBox::Yes)
             {
                 managerApproved_ = true;
                 result = OrderService::editOrder(order, details, stamp,
                                                  DateUtils::today(),
                                                  true, adjuster, paths);
+            }
+            else
+            {
+                return;
             }
         }
     }
@@ -1171,11 +1282,13 @@ void PosWindow::generateBill()
         if (editingExistingOrder_ && !existingBill.billId.empty())
         {
             bill = billing_.updateExistingBill(existingBill.billId,
-                                               order, details);
+                                               order, details,
+                                               0.0, quote.totalPayable);
         }
         else
         {
-            bill = billing_.generateBill(order, details);
+            bill = billing_.generateBill(order, details, 0.0,
+                                         quote.totalPayable, "", "", false);
         }
         showBill(order, bill, cart_);
     }

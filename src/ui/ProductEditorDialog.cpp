@@ -112,6 +112,7 @@ void ProductEditorDialog::buildUi()
     if (existingId_ > 0)
     {
         generateButton_->setEnabled(false); // barcode is fixed for existing products
+        categoryCombo_->setEnabled(false);  // category is encoded in the barcode
     }
 }
 
@@ -156,14 +157,6 @@ void ProductEditorDialog::generateBarcode()
         const std::string barcode = BarcodeAllocator::next(categoryId, existing);
         generatedBarcode_ = barcode;
         barcodeEdit_->setText(QString::fromStdString(barcode));
-
-        // Render + save barcode image so the product is immediately scannable.
-        BarcodeWidget widget;
-        widget.setPattern(BarcodeEncoder().encode(std::stoi(barcode)));
-        QDir().mkpath("barcodes");
-        const QString path = QString("barcodes/%1.png")
-                                 .arg(QString::fromStdString(barcode));
-        widget.renderImage().save(path);
     }
     catch (const std::exception &e)
     {
@@ -217,9 +210,26 @@ bool ProductEditorDialog::persist(const std::string &barcode)
                   "barcodes/" + barcode + ".png");
 
         if (existingId_ > 0)
+        {
             catalog_->updateProduct(p);
+        }
         else
+        {
             catalog_->addProduct(p);
+
+            // Write the image only after the product is accepted, so a
+            // cancelled dialog does not leave an orphan PNG behind.
+            BarcodeWidget widget;
+            widget.setPattern(BarcodeEncoder().encode(std::stoi(barcode)));
+            QDir().mkpath("barcodes");
+            const QString path = QString("barcodes/%1.png")
+                                     .arg(QString::fromStdString(barcode));
+            if (!widget.renderImage().save(path))
+            {
+                QMessageBox::warning(this, "Barcode Image",
+                    "The product was saved, but its barcode image could not be written.");
+            }
+        }
         return true;
     }
     catch (const std::exception &e)

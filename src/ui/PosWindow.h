@@ -91,6 +91,7 @@ private:
     // --- hold / resume ---
     void holdCurrentOrder();
     void resumeOrder();
+    void openOrderForEditing(const std::string &orderId);
     std::vector<OrderDetail> cartToDetails(const std::string &orderId) const;
 
     // --- camera ---
