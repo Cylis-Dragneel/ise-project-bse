@@ -19,24 +19,32 @@
 #include <QStatusBar>
 #include <QRegularExpressionValidator>
 #include <QVideoWidget>
+#include <QScrollArea>
 #include <exception>
 #include <string>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("Barcode Generator and Reader");
-    resize(1200, 800);
+    setWindowTitle("Pazarla | Point of Sale System");
+    setMinimumSize(900, 620);
+    resize(1280, 820);
 
-    QTabWidget *tabs = new QTabWidget(this);
+    tabs_ = new QTabWidget(this);
+    QTabWidget *tabs = tabs_;
+    tabs->setDocumentMode(true);
+    tabs->setMovable(false);
     setCentralWidget(tabs);
 
     QWidget *barcodePage = new QWidget();
+    barcodePage->setObjectName("BarcodePage");
     QVBoxLayout *mainLayout = new QVBoxLayout(barcodePage);
+    mainLayout->setContentsMargins(22, 20, 22, 20);
+    mainLayout->setSpacing(16);
 
     QLabel *heading = new QLabel("Barcode Generator & Reader");
     heading->setAlignment(Qt::AlignCenter);
-    heading->setStyleSheet("font-size: 26px; font-weight: bold;");
+    heading->setObjectName("PageHeading");
 
     mainLayout->addWidget(heading);
 
@@ -61,7 +69,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Integrated custom BarcodeWidget renderer
     barcodeRendererWidget = new BarcodeWidget(generatorPanel);
     barcodeRendererWidget->setMinimumHeight(200);
-    barcodeRendererWidget->setStyleSheet("border: 1px solid gray; background: white;");
+    barcodeRendererWidget->setStyleSheet("border: 1px solid #303030; background: #111111; border-radius: 10px;");
 
     saveButton = new QPushButton("Save Barcode Image");
     saveButton->setEnabled(false);
@@ -85,7 +93,7 @@ MainWindow::MainWindow(QWidget *parent)
     readerPreview->setAlignment(Qt::AlignCenter);
     readerPreview->setMinimumHeight(200);
     readerPreview->setStyleSheet(
-        "border: 1px solid gray; background: #f5f5f5;");
+        "border: 1px solid #303030; background: #111111; color: #bdbdbd; border-radius: 10px;");
 
     cameraPreview = new QVideoWidget();
     cameraPreview->setMinimumHeight(200);
@@ -132,7 +140,12 @@ MainWindow::MainWindow(QWidget *parent)
                 decodedNumber->setText(
                     QString("Decoded Number: %1")
                         .arg(QString::fromStdString(barcode)));
-                statusBar()->showMessage("Barcode decoded from camera.");
+                statusBar()->showMessage("Barcode decoded. Item sent to the POS cart.");
+                if (posWindow != nullptr)
+                {
+                    posWindow->addScannedBarcode(QString::fromStdString(barcode));
+                    tabs_->setCurrentIndex(1);
+                }
 
                 // Freeze the scan loop after the first success. The camera
                 // preview stays open; the Stop button still decodes the last
@@ -158,21 +171,25 @@ MainWindow::MainWindow(QWidget *parent)
                 //   // Bill bill = billing.generateBill(order);
             });
 
-    // Button styling
-    setStyleSheet(
-        "QPushButton {"
-        "padding: 9px;"
-        "background-color: #2878c8;"
-        "color: white;"
-        "border-radius: 5px;"
-        "}"
-        "QPushButton:hover {"
-        "background-color: #155a9c;"
-        "}"
-        "QGroupBox {"
-        "font-weight: bold;"
-        "}"
-        );
+    // Pazarla dark dashboard palette (matching the supplied reference).
+    setStyleSheet(R"(
+        QMainWindow, QWidget#BarcodePage { background: #0b1110; color: #e8f0ed; }
+        QTabWidget::pane { border: 1px solid #263b33; background: #0b1110; }
+        QTabBar::tab { background: #111a17; color: #aebeb6; padding: 14px 26px; border: 0; margin-right: 3px; font-weight: 700; }
+        QTabBar::tab:selected { background: #174b36; color: #fff; border-bottom: 3px solid #35c58a; }
+        QTabBar::tab:hover:!selected { background: #1b2922; color: #fff; }
+        QLabel { color: #e8f0ed; }
+        QLabel#PageHeading { color: #fff; font-size: 27px; font-weight: 800; padding: 10px; }
+        QGroupBox { background: #111a17; color: #f3f8f5; border: 1px solid #263b33; border-radius: 12px; margin-top: 13px; padding: 18px 14px 14px; font-size: 14px; font-weight: 700; }
+        QGroupBox::title { subcontrol-origin: margin; left: 14px; padding: 0 6px; color: #9ad9bd; }
+        QLineEdit, QComboBox, QDoubleSpinBox { background: #0d1512; color: #fff; border: 1px solid #2b4238; border-radius: 8px; padding: 10px; min-height: 20px; selection-background-color: #176b4b; }
+        QLineEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border: 1px solid #35c58a; }
+        QPushButton { background: #1b6b4d; color: #fff; border: 1px solid #27845f; border-radius: 8px; padding: 11px 17px; min-height: 20px; font-weight: 700; }
+        QPushButton:hover { background: #25845f; }
+        QPushButton:pressed { background: #124d37; }
+        QPushButton:disabled { background: #26332d; color: #75847c; border-color: #26332d; }
+        QStatusBar { background: #101815; color: #b9c9c1; border-top: 1px solid #263b33; }
+    )");
 
     // Button connections
     connect(generateButton, &QPushButton::clicked,
@@ -453,9 +470,10 @@ bool MainWindow::decodeImage(const QImage &image)
     decodedNumber->setText(
         QString("Decoded Number: %1").arg(QString::fromStdString(barcode)));
 
-    // TODO(integration): forward `barcode` to the POS order-entry or
-    // description screen once Person D's PosWindow is merged. ProductResolver
-    // (src/core/catalog) already produces the product, its description and the
-    // user-facing error message; the UI only has to display them.
+    if (posWindow != nullptr)
+    {
+        posWindow->addScannedBarcode(QString::fromStdString(barcode));
+        tabs_->setCurrentIndex(1);
+    }
     return true;
 }

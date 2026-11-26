@@ -1,12 +1,19 @@
 #include "PosWindow.h"
 
+#include "InventoryDialog.h"
 #include "ProductDescriptionDialog.h"
+#include "ProductsDialog.h"
+#include "ReportsDialog.h"
+#include "SeasonsDialog.h"
 #include "billing/BillCalculator.h"
+#include "BillPdfWriter.h"
 #include "billing/FileBillDetailRepository.h"
 #include "billing/FileBillRepository.h"
 #include "camera/CameraHandler.h"
 #include "catalog/NumberFormat.h"
+#include "catalogStockAdjuster.h"
 #include "managers/OrderManager.h"
+#include "orderService.h"
 #include "scanning/BarcodeScannerService.h"
 #include "util/DateUtils.h"
 
@@ -15,10 +22,13 @@
 #include <QCoreApplication>
 #include <QDialog>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFontDatabase>
 #include <QFormLayout>
+#include <QFrame>
 #include <QGroupBox>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -28,6 +38,8 @@
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
 #include <QStackedWidget>
+#include <QScrollArea>
+#include <QSizePolicy>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTextEdit>
@@ -43,8 +55,6 @@
 
 namespace {
 
-// Prefer data/ next to the working directory (the repo root / just run), then
-// the copy CMake places next to the executable.
 std::string defaultProductPath()
 {
     const QString local = "data/Product.txt";
@@ -52,18 +62,15 @@ std::string defaultProductPath()
     {
         return local.toStdString();
     }
-
     const QString nextToApp =
         QCoreApplication::applicationDirPath() + "/data/Product.txt";
     if (QFileInfo::exists(nextToApp))
     {
         return nextToApp.toStdString();
     }
-
     return local.toStdString();
 }
 
-// Seasons are optional: a missing Seasons.txt simply means "no seasons yet".
 std::string defaultSeasonPath()
 {
     const QString local = "data/Seasons.txt";
@@ -71,14 +78,12 @@ std::string defaultSeasonPath()
     {
         return local.toStdString();
     }
-
     const QString nextToApp =
         QCoreApplication::applicationDirPath() + "/data/Seasons.txt";
     if (QFileInfo::exists(nextToApp))
     {
         return nextToApp.toStdString();
     }
-
     return local.toStdString();
 }
 
@@ -93,6 +98,7 @@ PosWindow::PosWindow(QWidget *parent)
       billDetailPath_("BillDetail.txt"),
       seasonPath_(defaultSeasonPath()),
       catalog_(std::make_shared<FileProductRepository>(productPath_)),
+      categories_(std::make_shared<FileCategoryRepository>("PCategory.txt")),
       resolver_(catalog_),
       seasons_(std::make_shared<FileSeasonRepository>(seasonPath_)),
       billing_(catalog_, std::make_shared<FileBillRepository>(billPath_),
@@ -106,6 +112,15 @@ PosWindow::PosWindow(QWidget *parent)
     catch (const std::exception &error)
     {
         catalogError_ = error.what();
+    }
+
+    try
+    {
+        categories_.load();
+    }
+    catch (const std::exception &error)
+    {
+        setStatus(QString("PCategory.txt could not be loaded: %1").arg(error.what()));
     }
 
     try
@@ -125,55 +140,25 @@ PosWindow::PosWindow(QWidget *parent)
     stack_ = new QStackedWidget(this);
     stack_->addWidget(createRolePage());
     stack_->addWidget(createPosPage());
+    stack_->addWidget(createManagerPage());
     layout->addWidget(stack_);
 
     setStyleSheet(R"(
-        QWidget#PosPage { background: #f3f4f6; }
-        QWidget#PosPage QGroupBox {
-            border: 1px solid #d1d5db;
-            border-radius: 8px;
-            margin-top: 10px;
-            padding-top: 8px;
-            background: #ffffff;
-        }
-        QWidget#PosPage QGroupBox::title {
-            subcontrol-origin: margin;
-            left: 10px;
-            padding: 0 4px;
-            font-weight: bold;
-            color: #2b2e3b;
-        }
-        QWidget#PosPage QTableWidget {
-            background: #ffffff;
-            alternate-background-color: #f9fafb;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-        }
-        QWidget#PosPage QHeaderView::section {
-            background: #f9fafb;
-            color: #6b7280;
-            font-weight: bold;
-            border: none;
-            border-bottom: 1px solid #e5e7eb;
-            padding: 6px;
-        }
-        QWidget#PosPage QLineEdit,
-        QWidget#PosPage QComboBox,
-        QWidget#PosPage QDoubleSpinBox {
-            background: #ffffff;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            padding: 6px;
-        }
-        QWidget#PosPage QTextEdit {
-            background: #ffffff;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-        }
-        QWidget#PosPage QPushButton:disabled {
-            background-color: #9ca3af;
-            color: #f3f4f6;
-        }
+        QWidget#RolePage, QWidget#PosPage, QWidget#ManagerPage { background: #0b1110; color: #e8f0ed; }
+        QWidget#RolePage QLabel, QWidget#PosPage QLabel, QWidget#ManagerPage QLabel { color: #e8f0ed; }
+        QWidget#RolePage QPushButton { background: #147a55; color: #fff; border: 1px solid #24966b; border-radius: 12px; min-height: 54px; min-width: 270px; padding: 10px 22px; font-size: 15px; font-weight: 700; }
+        QWidget#RolePage QPushButton:hover { background: #199568; }
+        QWidget#PosPage QGroupBox, QWidget#ManagerPage QGroupBox { background: #111a17; color: #f3f8f5; border: 1px solid #263b33; border-radius: 12px; margin-top: 13px; padding: 15px 12px 11px; }
+        QWidget#PosPage QGroupBox::title, QWidget#ManagerPage QGroupBox::title { subcontrol-origin: margin; left: 13px; padding: 0 6px; color: #9ad9bd; font-weight: 700; }
+        QWidget#PosPage QTableWidget, QWidget#ManagerPage QTableWidget { background: #101815; alternate-background-color: #15211c; color: #e8f0ed; border: 1px solid #263b33; border-radius: 10px; gridline-color: #20342c; selection-background-color: #176b4b; selection-color: #fff; }
+        QWidget#PosPage QHeaderView::section, QWidget#ManagerPage QHeaderView::section { background: #183b2d; color: #eafff3; font-weight: 700; border: 0; padding: 10px 7px; }
+        QWidget#PosPage QLineEdit, QWidget#PosPage QComboBox, QWidget#PosPage QDoubleSpinBox { background: #0d1512; border: 1px solid #2b4238; border-radius: 8px; padding: 9px; color: #f4faf6; min-height: 20px; }
+        QWidget#PosPage QLineEdit:focus, QWidget#PosPage QComboBox:focus, QWidget#PosPage QDoubleSpinBox:focus { border: 1px solid #35c58a; }
+        QWidget#PosPage QTextEdit { background: #0d1512; border: 1px solid #263b33; border-radius: 9px; color: #e8f0ed; padding: 8px; }
+        QWidget#PosPage QPushButton, QWidget#ManagerPage QPushButton { background: #1b6b4d; color: #fff; border: 1px solid #27845f; border-radius: 8px; padding: 10px 14px; min-height: 20px; font-weight: 650; }
+        QWidget#PosPage QPushButton:hover, QWidget#ManagerPage QPushButton:hover { background: #25845f; }
+        QWidget#PosPage QPushButton:disabled { background: #26332d; color: #75847c; border-color: #26332d; }
+        QScrollArea { border: 0; background: #0b1110; }
     )");
 }
 
@@ -195,11 +180,11 @@ QWidget *PosWindow::createRolePage()
 
     QLabel *title = new QLabel("Pazarla Point of Sale", page);
     title->setAlignment(Qt::AlignCenter);
-    title->setStyleSheet("font-size: 30px; font-weight: bold; color: #2b2e3b;");
+    title->setStyleSheet("font-size: 30px; font-weight: 700; color: #ffffff;");
 
     QLabel *subtitle = new QLabel("Choose how this terminal is being used.", page);
     subtitle->setAlignment(Qt::AlignCenter);
-    subtitle->setStyleSheet("font-size: 15px; color: #6b7280;");
+    subtitle->setStyleSheet("font-size: 15px; color: #bdbdbd;");
 
     QPushButton *cashier = new QPushButton("Cashier", page);
     QPushButton *manager = new QPushButton("Manager", page);
@@ -227,13 +212,12 @@ QWidget *PosWindow::createPosPage()
     page->setObjectName("PosPage");
 
     QVBoxLayout *pageLayout = new QVBoxLayout(page);
-    pageLayout->setContentsMargins(18, 18, 18, 18);
-    pageLayout->setSpacing(10);
+    pageLayout->setContentsMargins(24, 20, 24, 20);
+    pageLayout->setSpacing(12);
 
-    // --- top bar -----------------------------------------------------------
     QHBoxLayout *topBar = new QHBoxLayout();
     roleLabel_ = new QLabel("Cashier", page);
-    roleLabel_->setStyleSheet("font-size: 16px; font-weight: bold; color: #2b2e3b;");
+    roleLabel_->setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;");
     QPushButton *switchRoleButton = new QPushButton("Switch Role", page);
     switchRoleButton->setMaximumWidth(120);
     topBar->addWidget(roleLabel_);
@@ -241,25 +225,25 @@ QWidget *PosWindow::createPosPage()
     topBar->addWidget(switchRoleButton);
     pageLayout->addLayout(topBar);
 
-    // --- main row ----------------------------------------------------------
     QHBoxLayout *mainRow = new QHBoxLayout();
-    mainRow->setSpacing(14);
+    mainRow->setSpacing(18);
 
-    // Left: camera, scan controls, specs.
     QVBoxLayout *left = new QVBoxLayout();
-    left->setSpacing(8);
+    left->setSpacing(11);
 
     cameraPreview_ = new QVideoWidget(page);
-    cameraPreview_->setMinimumSize(360, 260);
+    cameraPreview_->setMinimumSize(260, 180);
+    cameraPreview_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     cameraPreview_->hide();
     left->addWidget(cameraPreview_);
 
     cameraPlaceholder_ = new QLabel(
         "Camera off\n\nUse Start Camera or enter a barcode.", page);
-    cameraPlaceholder_->setMinimumSize(360, 260);
+    cameraPlaceholder_->setMinimumSize(260, 180);
+    cameraPlaceholder_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     cameraPlaceholder_->setAlignment(Qt::AlignCenter);
     cameraPlaceholder_->setStyleSheet(
-        "background: #111827; color: #d1d5db; border-radius: 8px;"
+        "background: #101010; color: #bdbdbd; border: 1px solid #303030; border-radius: 8px;"
         "font-size: 14px; padding: 12px;");
     left->addWidget(cameraPlaceholder_);
 
@@ -311,7 +295,8 @@ QWidget *PosWindow::createPosPage()
     QVBoxLayout *specsLayout = new QVBoxLayout(specsBox);
     specsView_ = new QTextEdit(specsBox);
     specsView_->setReadOnly(true);
-    specsView_->setMinimumHeight(150);
+    specsView_->setMinimumHeight(90);
+    specsView_->setMaximumHeight(180);
     specsView_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     specsView_->setPlaceholderText("Scan or enter a barcode to see the product.");
     specsLayout->addWidget(specsView_);
@@ -319,9 +304,8 @@ QWidget *PosWindow::createPosPage()
     specsLayout->addWidget(descriptionButton);
     left->addWidget(specsBox);
 
-    // Right: cart, totals, customer, bill.
     QVBoxLayout *right = new QVBoxLayout();
-    right->setSpacing(8);
+    right->setSpacing(11);
 
     cartTable_ = new QTableWidget(0, 7, page);
     cartTable_->setHorizontalHeaderLabels(
@@ -330,11 +314,15 @@ QWidget *PosWindow::createPosPage()
     cartTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     cartTable_->setSelectionMode(QAbstractItemView::SingleSelection);
     cartTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    cartTable_->setAlternatingRowColors(true);
+    cartTable_->verticalHeader()->setVisible(false);
+    cartTable_->verticalHeader()->setDefaultSectionSize(34);
+    cartTable_->horizontalHeader()->setMinimumSectionSize(62);
     right->addWidget(cartTable_, 1);
 
     totalsLabel_ = new QLabel(page);
     totalsLabel_->setStyleSheet(
-        "font-size: 15px; font-weight: bold; color: #2b2e3b; padding: 4px;");
+        "font-size: 15px; font-weight: bold; color: #ffffff; padding: 4px;");
     right->addWidget(totalsLabel_);
 
     QGroupBox *customerBox = new QGroupBox("Customer & Payment", page);
@@ -353,19 +341,25 @@ QWidget *PosWindow::createPosPage()
     customerForm->addRow("Merchant", merchantInput_);
     right->addWidget(customerBox);
 
+    QHBoxLayout *orderActionRow = new QHBoxLayout();
+    holdButton_ = new QPushButton("Hold Order", page);
+    resumeButton_ = new QPushButton("Resume Order", page);
+    orderActionRow->addWidget(holdButton_);
+    orderActionRow->addWidget(resumeButton_);
+    right->addLayout(orderActionRow);
+
     billButton_ = new QPushButton("Generate Bill", page);
     billButton_->setMinimumHeight(42);
     billButton_->setEnabled(false);
     right->addWidget(billButton_);
 
-    mainRow->addLayout(left, 0);
-    mainRow->addLayout(right, 1);
+    mainRow->addLayout(left, 4);
+    mainRow->addLayout(right, 6);
     pageLayout->addLayout(mainRow, 1);
 
-    // --- recent orders -----------------------------------------------------
     QHBoxLayout *recentHeader = new QHBoxLayout();
     QLabel *recentLabel = new QLabel("Recent Orders", page);
-    recentLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #2b2e3b;");
+    recentLabel->setStyleSheet("font-size: 15px; font-weight: bold; color: #ffffff;");
     QPushButton *refreshButton = new QPushButton("Refresh", page);
     refreshButton->setMaximumWidth(100);
     recentHeader->addWidget(recentLabel);
@@ -377,11 +371,14 @@ QWidget *PosWindow::createPosPage()
     recentTable_->setHorizontalHeaderLabels({"Order ID", "Customer", "Status", "Amount"});
     recentTable_->horizontalHeader()->setStretchLastSection(true);
     recentTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    recentTable_->setMaximumHeight(130);
+    recentTable_->setMinimumHeight(90);
+    recentTable_->setMaximumHeight(150);
+    recentTable_->setAlternatingRowColors(true);
+    recentTable_->verticalHeader()->setVisible(false);
     pageLayout->addWidget(recentTable_);
 
-    // --- manager-only tools ------------------------------------------------
     managerTools_ = new QGroupBox("Manager Tools", page);
+    managerTools_->setStyleSheet("QGroupBox { border: 1px solid #285a49; background: #0d1d18; } QGroupBox::title { color: #ffffff; }");
     QHBoxLayout *managerLayout = new QHBoxLayout(managerTools_);
     QPushButton *reloadButton = new QPushButton("Reload Product.txt", managerTools_);
     managerLayout->addWidget(reloadButton);
@@ -390,10 +387,9 @@ QWidget *PosWindow::createPosPage()
     pageLayout->addWidget(managerTools_);
 
     statusLabel_ = new QLabel("Ready.", page);
-    statusLabel_->setStyleSheet("color: #4b5563;");
+    statusLabel_->setStyleSheet("color: #bdbdbd;");
     pageLayout->addWidget(statusLabel_);
 
-    // --- camera ------------------------------------------------------------
     cameraHandler_ = new CameraHandler(cameraPreview_, this);
     scanner_ = new BarcodeScannerService(this);
 
@@ -413,13 +409,10 @@ QWidget *PosWindow::createPosPage()
     connect(scanner_, &BarcodeScannerService::barcodeDetected,
             this, [this](const std::string &barcode) {
                 addBarcode(barcode, 1.0);
-                // The service stops itself after one success; the button
-                // re-arms it for the next item.
                 cameraButton_->setText("Scan Next Item");
                 stopCameraButton_->setEnabled(true);
             });
 
-    // --- connections -------------------------------------------------------
     connect(switchRoleButton, &QPushButton::clicked, this, [this]() {
         stopCameraInternal();
         stack_->setCurrentIndex(0);
@@ -434,8 +427,6 @@ QWidget *PosWindow::createPosPage()
             this, &PosWindow::addFromInput);
     connect(barcodeInput_, &QLineEdit::textChanged, this,
             [this](const QString &text) {
-                // Adapt the quantity field as soon as the barcode is complete,
-                // so a weight product can take 1.5 and a count product cannot.
                 if (text.size() != 6)
                 {
                     return;
@@ -455,6 +446,10 @@ QWidget *PosWindow::createPosPage()
             this, &PosWindow::showDescription);
     connect(billButton_, &QPushButton::clicked,
             this, &PosWindow::generateBill);
+    connect(holdButton_, &QPushButton::clicked,
+            this, &PosWindow::holdCurrentOrder);
+    connect(resumeButton_, &QPushButton::clicked,
+            this, &PosWindow::resumeOrder);
     connect(refreshButton, &QPushButton::clicked,
             this, &PosWindow::refreshRecentOrders);
     connect(reloadButton, &QPushButton::clicked, this, [this]() {
@@ -488,6 +483,126 @@ QWidget *PosWindow::createPosPage()
 
     refreshRecentOrders();
     updateCart();
+
+    QScrollArea *scrollArea = new QScrollArea(this);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setWidget(page);
+    return scrollArea;
+}
+
+QWidget *PosWindow::createManagerPage()
+{
+    QWidget *page = new QWidget(this);
+    page->setObjectName("ManagerPage");
+
+    QVBoxLayout *layout = new QVBoxLayout(page);
+    layout->setContentsMargins(32, 28, 32, 28);
+    layout->setSpacing(18);
+
+    QHBoxLayout *headingRow = new QHBoxLayout();
+    QVBoxLayout *headingText = new QVBoxLayout();
+    QLabel *title = new QLabel("Pazarla", page);
+    title->setStyleSheet("font-size: 30px; font-weight: 800; color: #ffffff;");
+    QLabel *subtitle = new QLabel("MANAGER DASHBOARD", page);
+    subtitle->setStyleSheet("font-size: 15px; color: #c9c9c9; letter-spacing: 1px;");
+    headingText->addWidget(title);
+    headingText->addWidget(subtitle);
+    headingRow->addLayout(headingText);
+    headingRow->addStretch();
+
+    QLabel *systemBadge = new QLabel("POS SYSTEM", page);
+    systemBadge->setStyleSheet("background: #063b22; color: #00c96b; border-radius: 15px; padding: 8px 16px; font-weight: 800;");
+    headingRow->addWidget(systemBadge, 0, Qt::AlignTop);
+    QPushButton *switchRole = new QPushButton("Switch Role", page);
+    switchRole->setMaximumWidth(130);
+    headingRow->addWidget(switchRole, 0, Qt::AlignTop);
+    layout->addLayout(headingRow);
+
+    QGridLayout *cards = new QGridLayout();
+    cards->setHorizontalSpacing(16);
+    cards->setVerticalSpacing(16);
+    const auto makeCard = [page](const QString &name, const QString &description,
+                                 const QString &color, const QString &hover) {
+        QPushButton *card = new QPushButton(page);
+        card->setMinimumHeight(165);
+        card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        card->setText(QString("%1\n\n%2").arg(name, description));
+        card->setStyleSheet(QString(
+            "QPushButton { text-align: left; white-space: pre-wrap; background: %1; color: white; border: 1px solid #426b58; border-radius: 16px; padding: 24px; font-size: 19px; font-weight: 700; }"
+            "QPushButton:hover { background: %2; }").arg(color, hover));
+        return card;
+    };
+
+    QPushButton *products = makeCard("⬡  Products", "Manage products", "#183f37", "#225447");
+    QPushButton *inventory = makeCard("▤  Inventory", "Manage stock", "#28516d", "#356783");
+    QPushButton *categories = makeCard("▥  Categories", "Barcode management", "#79552f", "#90683b");
+    QPushButton *reports = makeCard("▰  Reports", "Sales analytics", "#59436f", "#6d5486");
+    QPushButton *seasons = makeCard("❄  Seasons", "Discount periods", "#5a4d7a", "#6f6195");
+    cards->addWidget(products, 0, 0);
+    cards->addWidget(inventory, 0, 1);
+    cards->addWidget(categories, 1, 0);
+    cards->addWidget(reports, 1, 1);
+    cards->addWidget(seasons, 2, 0, 1, 2);
+    cards->setColumnStretch(0, 1);
+    cards->setColumnStretch(1, 1);
+    cards->setRowStretch(0, 1);
+    cards->setRowStretch(1, 1);
+    cards->setRowStretch(2, 1);
+    layout->addLayout(cards, 1);
+
+    QFrame *separator = new QFrame(page);
+    separator->setFrameShape(QFrame::HLine);
+    separator->setStyleSheet("color: #292929;");
+    layout->addWidget(separator);
+
+    QHBoxLayout *bottomRow = new QHBoxLayout();
+    QLabel *posLabel = new QLabel("🛒  Cashier / Point of Sale", page);
+    posLabel->setStyleSheet("font-size: 19px; font-weight: 700; color: #eeeeee;");
+    bottomRow->addWidget(posLabel);
+    bottomRow->addStretch();
+    QPushButton *openCashier = new QPushButton("Open Cashier", page);
+    bottomRow->addWidget(openCashier);
+    layout->addLayout(bottomRow);
+
+    QLabel *managerStatus = new QLabel("Manager dashboard ready.", page);
+    managerStatus->setStyleSheet("color: #a7a7a7; padding-top: 4px;");
+    layout->addWidget(managerStatus);
+
+    connect(switchRole, &QPushButton::clicked, this, [this]() {
+        stopCameraInternal();
+        stack_->setCurrentIndex(0);
+    });
+    connect(openCashier, &QPushButton::clicked, this, [this]() {
+        role_ = Role::Cashier;
+        roleLabel_->setText("Cashier");
+        stack_->setCurrentIndex(1);
+        setStatus("Cashier mode.");
+    });
+    connect(products, &QPushButton::clicked, this, [this]() {
+        ProductsDialog dlg(&catalog_, &categories_, this);
+        dlg.exec();
+    });
+    connect(inventory, &QPushButton::clicked, this, [this]() {
+        InventoryDialog dlg(&catalog_, this);
+        dlg.exec();
+    });
+    connect(categories, &QPushButton::clicked, this, [this]() {
+        ProductsDialog dlg(&catalog_, &categories_, this);
+        dlg.exec();
+    });
+    connect(reports, &QPushButton::clicked, this, [this]() {
+        ReportsDialog dlg(catalog_, orderPath_, detailPath_,
+                          billPath_, billDetailPath_, &seasons_, this);
+        dlg.exec();
+    });
+    connect(seasons, &QPushButton::clicked, this, [this]() {
+        SeasonsDialog dlg(&seasons_, this);
+        dlg.exec();
+    });
+
     return page;
 }
 
@@ -495,8 +610,8 @@ void PosWindow::selectRole(Role role)
 {
     role_ = role;
     roleLabel_->setText(role == Role::Manager ? "Manager" : "Cashier");
-    managerTools_->setVisible(role == Role::Manager);
-    stack_->setCurrentIndex(1);
+    managerTools_->setVisible(false);
+    stack_->setCurrentIndex(role == Role::Manager ? 2 : 1);
     setStatus(role == Role::Manager ? "Manager mode." : "Cashier mode.");
 }
 
@@ -545,6 +660,20 @@ void PosWindow::stopCamera()
     {
         stopCameraInternal();
     }
+}
+
+void PosWindow::addScannedBarcode(const QString &barcode)
+{
+    if (barcode.isEmpty())
+    {
+        return;
+    }
+
+    role_ = Role::Cashier;
+    roleLabel_->setText("Cashier");
+    stack_->setCurrentIndex(1);
+    barcodeInput_->setText(barcode);
+    addBarcode(barcode.toStdString(), 1.0);
 }
 
 bool PosWindow::addBarcode(const std::string &barcode, double quantity)
@@ -706,7 +835,6 @@ void PosWindow::updateCart()
 
     if (cart_.empty())
     {
-        // Do not leave the last selected row's quantity on screen.
         selectedQuantityInput_->setDecimals(0);
         selectedQuantityInput_->setRange(1.0, 1000000.0);
         selectedQuantityInput_->setValue(1.0);
@@ -717,33 +845,44 @@ void PosWindow::updateCart()
 
 void PosWindow::updateTotals()
 {
-    Bill bill;
+    if (cart_.empty())
+    {
+        totalsLabel_->setText("Cart is empty.");
+        return;
+    }
+
+    std::vector<OrderDetail> details;
+    details.reserve(cart_.size());
     for (const CartLine &line : cart_)
     {
-        OrderDetail detail;
-        detail.productId = line.product.id();
-        detail.productBarcode = line.product.barcode();
-        detail.quantity = line.quantity;
-        bill.lines.push_back(BillCalculator::makeLine("", detail, line.product));
+        OrderDetail d;
+        d.productId = line.product.id();
+        d.productBarcode = line.product.barcode();
+        d.quantity = line.quantity;
+        details.push_back(d);
     }
 
-    double seasonalPercent = 0;
+    Order probe;
+    probe.orderId = "00000000";
+    probe.date = DateUtils::today();
+    probe.time = DateUtils::nowTime();
+    probe.status = "in-progress";
+
     try
     {
-        seasonalPercent = seasons_.activePercent(DateUtils::today());
+        const Bill quote = billing_.quote(probe, details);
+        totalsLabel_->setText(
+            QString("Subtotal %1 | Tax %2 | Discount %3 | Seasonal %4 | Total %5")
+                .arg(QString::fromStdString(NumberFormat::money(quote.totalNoTax)))
+                .arg(QString::fromStdString(NumberFormat::money(quote.totalTax)))
+                .arg(QString::fromStdString(NumberFormat::money(quote.totalDiscount)))
+                .arg(QString::fromStdString(NumberFormat::money(quote.seasonalDiscount)))
+                .arg(QString::fromStdString(NumberFormat::money(quote.totalPayable))));
     }
-    catch (const std::exception &)
+    catch (const std::exception &e)
     {
-        seasonalPercent = 0;
+        totalsLabel_->setText(QString("Cannot compute totals: %1").arg(e.what()));
     }
-    BillCalculator::calculate(bill, seasonalPercent);
-
-    totalsLabel_->setText(
-        QString("Subtotal %1 | Tax %2 | Discount %3 | Total %4")
-            .arg(QString::fromStdString(NumberFormat::money(bill.totalNoTax)))
-            .arg(QString::fromStdString(NumberFormat::money(bill.totalTax)))
-            .arg(QString::fromStdString(NumberFormat::money(bill.totalDiscount)))
-            .arg(QString::fromStdString(NumberFormat::money(bill.totalPayable))));
 }
 
 void PosWindow::showDescription()
@@ -771,6 +910,155 @@ int PosWindow::selectedRow() const
     return cartTable_->currentRow();
 }
 
+std::vector<OrderDetail> PosWindow::cartToDetails(const std::string &orderId) const
+{
+    std::vector<OrderDetail> details;
+    details.reserve(cart_.size());
+    for (const CartLine &line : cart_)
+    {
+        OrderDetail d;
+        d.orderId = orderId;
+        d.productId = line.product.id();
+        d.productBarcode = line.product.barcode();
+        d.quantity = line.quantity;
+        details.push_back(d);
+    }
+    return details;
+}
+
+void PosWindow::holdCurrentOrder()
+{
+    if (cart_.empty())
+    {
+        setStatus("Cart is empty - nothing to hold.");
+        return;
+    }
+
+    Order order;
+    order.date = OrderManager::getCurrentDate();
+    order.time = OrderManager::getCurrentTime();
+    order.orderId = OrderManager::generateOrderId(order.date, orderPath_);
+    if (order.orderId.empty())
+    {
+        setStatus("Could not allocate an order id.");
+        return;
+    }
+    order.customerName = customerInput_->text().trimmed().toStdString();
+    if (order.customerName.empty())
+    {
+        order.customerName = "Hold";
+    }
+    order.contact = contactInput_->text().trimmed().toStdString();
+    order.paymentMode = paymentModeInput_->currentText().toStdString();
+    order.merchant = merchantInput_->text().trimmed().toStdString();
+    order.status = "on-hold";
+
+    CatalogStockAdjuster adjuster(catalog_);
+    const OrderPaths paths{orderPath_, detailPath_};
+
+    const std::vector<OrderDetail> details = cartToDetails(order.orderId);
+    const OrderResult r = OrderService::holdOrder(order, details, adjuster, paths);
+    if (r != OrderResult::Ok)
+    {
+        setStatus(QString::fromStdString(describe(r)));
+        return;
+    }
+
+    cart_.clear();
+    lastProduct_.reset();
+    customerInput_->clear();
+    contactInput_->clear();
+    merchantInput_->clear();
+    updateCart();
+    refreshRecentOrders();
+    setStatus(QString("Order %1 held.")
+                  .arg(QString::fromStdString(order.orderId)));
+}
+
+void PosWindow::resumeOrder()
+{
+    const std::vector<Order> held =
+        OrderManager::loadOrdersByStatus("on-hold", orderPath_);
+
+    if (held.empty())
+    {
+        setStatus("No on-hold orders to resume.");
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Resume Held Order");
+    dlg.resize(500, 320);
+    auto *lay = new QVBoxLayout(&dlg);
+    auto *table = new QTableWidget(static_cast<int>(held.size()), 3, &dlg);
+    table->setHorizontalHeaderLabels({"Order ID", "Customer", "Date"});
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->verticalHeader()->setVisible(false);
+    table->horizontalHeader()->setStretchLastSection(true);
+    for (std::size_t i = 0; i < held.size(); ++i)
+    {
+        const int row = static_cast<int>(i);
+        table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(held[i].orderId)));
+        table->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(held[i].customerName)));
+        table->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(held[i].date)));
+    }
+    table->selectRow(0);
+    lay->addWidget(table, 1);
+    auto *buttons = new QHBoxLayout();
+    auto *ok = new QPushButton("Resume", &dlg);
+    auto *cancel = new QPushButton("Cancel", &dlg);
+    buttons->addStretch();
+    buttons->addWidget(ok);
+    buttons->addWidget(cancel);
+    lay->addLayout(buttons);
+    connect(ok, &QPushButton::clicked, &dlg, &QDialog::accept);
+    connect(cancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+    connect(table, &QTableWidget::cellDoubleClicked, &dlg,
+            [&dlg](int, int) { dlg.accept(); });
+
+    if (dlg.exec() != QDialog::Accepted)
+    {
+        return;
+    }
+    const int row = table->currentRow();
+    if (row < 0)
+    {
+        return;
+    }
+
+    Order loaded;
+    std::vector<OrderDetail> details;
+    const OrderResult r = OrderService::resumeOrder(
+        held[static_cast<std::size_t>(row)].orderId,
+        loaded, details, {orderPath_, detailPath_});
+    if (r != OrderResult::Ok)
+    {
+        setStatus(QString::fromStdString(describe(r)));
+        return;
+    }
+
+    cart_.clear();
+    for (const OrderDetail &d : details)
+    {
+        const Product *p = catalog_.findByBarcode(d.productBarcode);
+        if (p != nullptr)
+        {
+            cart_.push_back(CartLine{*p, d.quantity});
+        }
+    }
+    activeOrder_ = loaded;
+    editingExistingOrder_ = true;
+    managerApproved_ = false;
+    customerInput_->setText(QString::fromStdString(loaded.customerName));
+    contactInput_->setText(QString::fromStdString(loaded.contact));
+    merchantInput_->setText(QString::fromStdString(loaded.merchant));
+    updateCart();
+    setStatus(QString("Resumed order %1.")
+                  .arg(QString::fromStdString(loaded.orderId)));
+}
+
 void PosWindow::generateBill()
 {
     if (cart_.empty())
@@ -785,70 +1073,130 @@ void PosWindow::generateBill()
         return;
     }
 
-    Order order;
-    order.date = OrderManager::getCurrentDate();
-    order.time = OrderManager::getCurrentTime();
-    order.orderId = OrderManager::generateOrderId(order.date, orderPath_);
+    const std::string customer = customerInput_->text().trimmed().toStdString();
+    const std::string contact = contactInput_->text().trimmed().toStdString();
+    const std::string mode = paymentModeInput_->currentText().toStdString();
+    const std::string merchant = merchantInput_->text().trimmed().toStdString();
 
-    if (order.orderId.empty())
+    CatalogStockAdjuster adjuster(catalog_);
+    const OrderPaths paths{orderPath_, detailPath_};
+
+    Order order;
+    if (editingExistingOrder_)
     {
-        QMessageBox::critical(this, "Generate Bill",
-                              "Could not allocate an order id.");
+        order = activeOrder_;
+        order.customerName = customer;
+        order.contact = contact;
+        order.paymentMode = mode;
+        order.merchant = merchant;
+        order.status = "paid";
+    }
+    else
+    {
+        order.date = OrderManager::getCurrentDate();
+        order.time = OrderManager::getCurrentTime();
+        order.orderId = OrderManager::generateOrderId(order.date, orderPath_);
+        if (order.orderId.empty())
+        {
+            QMessageBox::critical(this, "Generate Bill",
+                                  "Could not allocate an order id.");
+            return;
+        }
+        order.customerName = customer;
+        order.contact = contact;
+        order.paymentMode = mode;
+        order.merchant = merchant;
+        order.status = "paid";
+    }
+
+    std::vector<OrderDetail> details = cartToDetails(order.orderId);
+
+    Bill quote;
+    try
+    {
+        quote = billing_.quote(order, details);
+        order.paymentAmount = quote.totalPayable;
+    }
+    catch (const std::exception &e)
+    {
+        QMessageBox::critical(this, "Generate Bill", e.what());
         return;
     }
 
-    order.customerName = customerInput_->text().trimmed().toStdString();
-    order.contact = contactInput_->text().trimmed().toStdString();
-    order.paymentMode = paymentModeInput_->currentText().toStdString();
-    order.merchant = merchantInput_->text().trimmed().toStdString();
-    order.status = "paid";
-
-    std::vector<OrderDetail> details;
-    details.reserve(cart_.size());
-    for (const CartLine &line : cart_)
+    OrderResult result;
+    BillStamp stamp;
+    Bill existingBill;
+    if (editingExistingOrder_ &&
+        billing_.findBillByOrderId(order.orderId, existingBill))
     {
-        OrderDetail detail;
-        detail.orderId = order.orderId;
-        detail.productId = line.product.id();
-        detail.productBarcode = line.product.barcode();
-        detail.quantity = line.quantity;
-        details.push_back(detail);
+        stamp.hasBill = true;
+        stamp.date = existingBill.billDate;
+        stamp.time = existingBill.billTime;
+    }
+
+    if (editingExistingOrder_)
+    {
+        result = OrderService::editOrder(order, details, stamp,
+                                         DateUtils::today(),
+                                         managerApproved_, adjuster, paths);
+        if (result == OrderResult::NeedsApproval)
+        {
+            if (QMessageBox::question(this, "Manager Approval",
+                    "This is a paid order inside the 7-day edit window.\n"
+                    "Manager approval is required to edit it. Approve?")
+                == QMessageBox::Yes)
+            {
+                managerApproved_ = true;
+                result = OrderService::editOrder(order, details, stamp,
+                                                 DateUtils::today(),
+                                                 true, adjuster, paths);
+            }
+        }
+    }
+    else
+    {
+        result = OrderService::saveNewOrder(order, details, adjuster, paths);
+    }
+
+    if (result != OrderResult::Ok)
+    {
+        QMessageBox::critical(this, "Generate Bill",
+                              QString::fromStdString(describe(result)));
+        return;
     }
 
     try
     {
-        const Bill quote = billing_.quote(order, details);
-        order.paymentAmount = quote.totalPayable;
-
-        if (!OrderManager::saveOrderTransaction(order, details,
-                                                orderPath_, detailPath_))
+        Bill bill;
+        if (editingExistingOrder_ && !existingBill.billId.empty())
         {
-            QMessageBox::critical(this, "Generate Bill",
-                                  "Could not save Order.txt / OrderDetail.txt.");
-            return;
+            bill = billing_.updateExistingBill(existingBill.billId,
+                                               order, details);
         }
-
-        const Bill bill = billing_.generateBill(order, details);
+        else
+        {
+            bill = billing_.generateBill(order, details);
+        }
         showBill(order, bill, cart_);
-
-        cart_.clear();
-        lastProduct_.reset();
-        customerInput_->clear();
-        contactInput_->clear();
-        merchantInput_->clear();
-        updateCart();
-        refreshRecentOrders();
-        emit orderSaved();
-
-        setStatus(QString("Bill %1 generated for order %2.")
-                      .arg(QString::fromStdString(bill.billId))
-                      .arg(QString::fromStdString(order.orderId)));
     }
-    catch (const std::exception &error)
+    catch (const std::exception &e)
     {
-        QMessageBox::critical(this, "Generate Bill",
-                              QString::fromStdString(error.what()));
+        QMessageBox::critical(this, "Generate Bill", e.what());
+        return;
     }
+
+    cart_.clear();
+    lastProduct_.reset();
+    customerInput_->clear();
+    contactInput_->clear();
+    merchantInput_->clear();
+    editingExistingOrder_ = false;
+    managerApproved_ = false;
+    activeOrder_ = Order();
+    updateCart();
+    refreshRecentOrders();
+    emit orderSaved();
+    setStatus("Order saved, stock updated, bill generated.");
 }
 
 void PosWindow::showBill(const Order &order, const Bill &bill,
@@ -856,7 +1204,7 @@ void PosWindow::showBill(const Order &order, const Bill &bill,
 {
     QDialog dialog(this);
     dialog.setWindowTitle("Bill " + QString::fromStdString(bill.billId));
-    dialog.resize(540, 620);
+    dialog.resize(560, 680);
 
     QVBoxLayout *layout = new QVBoxLayout(&dialog);
 
@@ -918,9 +1266,33 @@ void PosWindow::showBill(const Order &order, const Bill &bill,
     text->setPlainText(receipt);
     layout->addWidget(text);
 
-    QPushButton *closeButton = new QPushButton("Close", &dialog);
+    auto *buttons = new QHBoxLayout();
+    auto *pdfButton = new QPushButton("Save PDF", &dialog);
+    auto *closeButton = new QPushButton("Close", &dialog);
+    buttons->addWidget(pdfButton);
+    buttons->addWidget(closeButton);
+    layout->addLayout(buttons);
+
+    connect(pdfButton, &QPushButton::clicked, &dialog, [&dialog, bill]() {
+        const QString path = QFileDialog::getSaveFileName(
+            &dialog, "Save Bill as PDF",
+            BillPdfWriter::defaultFileName(bill),
+            "PDF files (*.pdf)");
+        if (path.isEmpty())
+        {
+            return;
+        }
+        QString error;
+        if (!BillPdfWriter::writeBillPdf(bill, path, &error))
+        {
+            QMessageBox::warning(&dialog, "PDF", error);
+        }
+        else
+        {
+            QMessageBox::information(&dialog, "PDF", "Saved to " + path);
+        }
+    });
     connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-    layout->addWidget(closeButton);
 
     dialog.exec();
 }
