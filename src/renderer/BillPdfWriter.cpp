@@ -12,7 +12,7 @@
 
 QString BillPdfWriter::defaultFileName(const Bill& bill)
 {
-    return QString("Bill_%1.pdf").arg(QString::fromStdString(bill.billId));
+    return QString("Order_%1.pdf").arg(QString::fromStdString(bill.orderId));
 }
 
 bool BillPdfWriter::writeBillPdf(const Bill& bill,

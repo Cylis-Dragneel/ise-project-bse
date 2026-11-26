@@ -26,14 +26,27 @@ ProductsDialog::ProductsDialog(ProductCatalog *catalog,
     setWindowTitle("Products & Categories");
     resize(820, 560);
 
+    // Apply dark mode theme to this dialog
+    setStyleSheet(R"(
+        QDialog { background: #0b1110; color: #e8f0ed; }
+        QLabel { color: #ffffff; }
+        QTableWidget { background: #101815; color: #ffffff; alternate-background-color: #15211c; }
+        QHeaderView::section { background: #183b2d; color: #eafff3; padding: 4px; }
+        QLineEdit { background: #0d1512; color: #ffffff; border: 1px solid #2b4238; padding: 5px; }
+        QPushButton { background: #1b6b4d; color: #ffffff; padding: 6px 12px; border-radius: 4px; }
+        QPushButton:hover { background: #25845f; }
+        QTabWidget::pane { border: 1px solid #263b33; }
+        QTabBar::tab { background: #111a17; color: #aebeb6; padding: 8px 16px; }
+        QTabBar::tab:selected { background: #174b36; color: #ffffff; }
+    )");
+
     auto *tabs = new QTabWidget(this);
 
     // Products tab
     auto *productsPage = new QWidget(this);
     auto *pLay = new QVBoxLayout(productsPage);
     productTable_ = new QTableWidget(0, 5, productsPage);
-    productTable_->setHorizontalHeaderLabels(
-        {"ID", "Name", "Barcode", "Category", "Price"});
+    productTable_->setHorizontalHeaderLabels({"ID", "Name", "Barcode", "Category", "Price"});
     productTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     productTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     productTable_->verticalHeader()->setVisible(false);
@@ -71,17 +84,11 @@ ProductsDialog::ProductsDialog(ProductCatalog *catalog,
     outer->addWidget(closeBtn);
 
     connect(addP, &QPushButton::clicked, this, &ProductsDialog::addProduct);
-    connect(editP, &QPushButton::clicked, this, [this]() {
-        editProduct(productTable_->currentRow());
-    });
-    connect(productTable_, &QTableWidget::cellDoubleClicked, this,
-            [this](int row, int) { editProduct(row); });
+    connect(editP, &QPushButton::clicked, this, [this]() { editProduct(productTable_->currentRow()); });
+    connect(productTable_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) { editProduct(row); });
     connect(addC, &QPushButton::clicked, this, &ProductsDialog::addCategory);
-    connect(editC, &QPushButton::clicked, this, [this]() {
-        editCategory(categoryTable_->currentRow());
-    });
-    connect(categoryTable_, &QTableWidget::cellDoubleClicked, this,
-            [this](int row, int) { editCategory(row); });
+    connect(editC, &QPushButton::clicked, this, [this]() { editCategory(categoryTable_->currentRow()); });
+    connect(categoryTable_, &QTableWidget::cellDoubleClicked, this, [this](int row, int) { editCategory(row); });
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
 
     refreshProducts();
@@ -95,12 +102,18 @@ void ProductsDialog::refreshProducts()
     for (const Product &p : catalog_->all())
     {
         productTable_->insertRow(row);
+
+        QString categoryName = QString::fromStdString(p.categoryId());
+        const ProductCategory *cat = categories_->findById(p.categoryId());
+        if (cat != nullptr) {
+            categoryName = QString::fromStdString(cat->name());
+        }
+
         productTable_->setItem(row, 0, new QTableWidgetItem(QString::number(p.id())));
         productTable_->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(p.name())));
         productTable_->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(p.barcode())));
-        productTable_->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(p.categoryId())));
-        productTable_->setItem(row, 4, new QTableWidgetItem(
-            QString::number(p.unitPrice(), 'f', 2)));
+        productTable_->setItem(row, 3, new QTableWidgetItem(categoryName));
+        productTable_->setItem(row, 4, new QTableWidgetItem(QString::number(p.unitPrice(), 'f', 2)));
         ++row;
     }
 }
@@ -123,8 +136,7 @@ void ProductsDialog::addProduct()
 {
     if (categories_->all().empty())
     {
-        QMessageBox::information(this, "Add Product",
-                                 "Add a category first.");
+        QMessageBox::information(this, "Add Product", "You must add a category first.");
         return;
     }
     ProductEditorDialog dlg(catalog_, categories_, 0, this);
@@ -149,17 +161,21 @@ void ProductsDialog::addCategory()
 {
     QDialog dlg(this);
     dlg.setWindowTitle("Add Category");
+    dlg.setStyleSheet("QDialog { background: #0b1110; color: #fff; } QLabel { color: #fff; } QLineEdit { background: #0d1512; color: #fff; border: 1px solid #555; padding: 4px; } QPushButton { background: #1b6b4d; padding: 6px; }");
+
     auto *form = new QFormLayout(&dlg);
     auto *idEdit = new QLineEdit(&dlg);
     idEdit->setMaxLength(2);
     auto *nameEdit = new QLineEdit(&dlg);
     auto *acrEdit = new QLineEdit(&dlg);
     acrEdit->setMaxLength(8);
-    form->addRow("ID (10-99)", idEdit);
-    form->addRow("Name", nameEdit);
-    form->addRow("Acronym", acrEdit);
+
+    form->addRow("Category ID (10-99):", idEdit);
+    form->addRow("Category Name:", nameEdit);
+    form->addRow("Acronym (max 8):", acrEdit);
     auto *ok = new QPushButton("Save", &dlg);
     form->addRow(ok);
+
     connect(ok, &QPushButton::clicked, &dlg, &QDialog::accept);
     if (dlg.exec() != QDialog::Accepted) return;
 
@@ -173,7 +189,7 @@ void ProductsDialog::addCategory()
     }
     catch (const std::exception &e)
     {
-        QMessageBox::critical(this, "Add Category", e.what());
+        QMessageBox::critical(this, "Error", e.what());
     }
 }
 
@@ -184,17 +200,21 @@ void ProductsDialog::editCategory(int row)
 
     QDialog dlg(this);
     dlg.setWindowTitle("Edit Category");
+    dlg.setStyleSheet("QDialog { background: #0b1110; color: #fff; } QLabel { color: #fff; } QLineEdit { background: #0d1512; color: #fff; border: 1px solid #555; padding: 4px; } QPushButton { background: #1b6b4d; padding: 6px; }");
+
     auto *form = new QFormLayout(&dlg);
     auto *idEdit = new QLineEdit(QString::fromStdString(c.id()), &dlg);
     idEdit->setReadOnly(true);
     auto *nameEdit = new QLineEdit(QString::fromStdString(c.name()), &dlg);
     auto *acrEdit = new QLineEdit(QString::fromStdString(c.acronym()), &dlg);
     acrEdit->setMaxLength(8);
-    form->addRow("ID", idEdit);
-    form->addRow("Name", nameEdit);
-    form->addRow("Acronym", acrEdit);
+
+    form->addRow("ID:", idEdit);
+    form->addRow("Name:", nameEdit);
+    form->addRow("Acronym:", acrEdit);
     auto *ok = new QPushButton("Save", &dlg);
     form->addRow(ok);
+
     connect(ok, &QPushButton::clicked, &dlg, &QDialog::accept);
     if (dlg.exec() != QDialog::Accepted) return;
 
@@ -208,6 +228,6 @@ void ProductsDialog::editCategory(int row)
     }
     catch (const std::exception &e)
     {
-        QMessageBox::critical(this, "Edit Category", e.what());
+        QMessageBox::critical(this, "Error", e.what());
     }
 }

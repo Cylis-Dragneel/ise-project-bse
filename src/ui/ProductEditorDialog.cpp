@@ -1,11 +1,11 @@
 #include "ProductEditorDialog.h"
-#include "barcodeEncoder.h"
 
+#include "catalog/BarcodeAllocator.h"
 #include "catalog/CategoryCatalog.h"
 #include "catalog/ProductCatalog.h"
 #include "catalog/ProductCategory.h"
-#include "catalog/BarcodeAllocator.h"
 #include "renderer/BarcodeWidget.h"
+#include "barcodeEncoder.h"
 
 #include <QComboBox>
 #include <QDir>
@@ -17,6 +17,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <exception>
 #include <vector>
 
@@ -30,7 +31,7 @@ ProductEditorDialog::ProductEditorDialog(ProductCatalog *catalog,
       existingId_(existingProductId)
 {
     setWindowTitle(existingProductId > 0 ? "Edit Product" : "Add Product");
-    resize(480, 480);
+    resize(480, 520);
     buildUi();
     if (existingId_ > 0)
     {
@@ -40,14 +41,31 @@ ProductEditorDialog::ProductEditorDialog(ProductCatalog *catalog,
 
 void ProductEditorDialog::buildUi()
 {
+    setStyleSheet(R"(
+        QDialog { background: #0b1110; color: #e8f0ed; }
+        QLabel { color: #ffffff; font-weight: bold; font-size: 13px; }
+        QLineEdit, QComboBox, QDoubleSpinBox {
+            background: #0d1512; color: #ffffff;
+            border: 1px solid #2b4238; border-radius: 6px; padding: 6px; min-height: 22px;
+        }
+        QPushButton {
+            background: #1b6b4d; color: #ffffff; border-radius: 6px; padding: 8px 16px; font-weight: bold;
+        }
+        QPushButton:hover { background: #25845f; }
+        QPushButton:disabled { background: #26332d; color: #75847c; }
+    )");
+
     auto *layout = new QVBoxLayout(this);
     auto *form = new QFormLayout();
+    form->setLabelAlignment(Qt::AlignLeft);
+    form->setSpacing(12);
 
     nameEdit_ = new QLineEdit(this);
     acronymEdit_ = new QLineEdit(this);
     acronymEdit_->setMaxLength(8);
 
     categoryCombo_ = new QComboBox(this);
+    // Populate dropdown
     for (const ProductCategory &c : categories_->all())
     {
         categoryCombo_->addItem(
@@ -85,15 +103,15 @@ void ProductEditorDialog::buildUi()
     barcodeRow->addWidget(barcodeEdit_, 1);
     barcodeRow->addWidget(generateButton_);
 
-    form->addRow("Name", nameEdit_);
-    form->addRow("Acronym", acronymEdit_);
-    form->addRow("Category", categoryCombo_);
-    form->addRow("Sold by", unitCombo_);
-    form->addRow("Unit price", priceSpin_);
-    form->addRow("Tax (PKR)", taxSpin_);
-    form->addRow("Discount/unit", discountSpin_);
-    form->addRow("In stock", quantitySpin_);
-    form->addRow("Barcode", barcodeRow);
+    form->addRow("Product Name:", nameEdit_);
+    form->addRow("Short Acronym:", acronymEdit_);
+    form->addRow("Category:", categoryCombo_);
+    form->addRow("Unit Type:", unitCombo_);
+    form->addRow("Unit Price (PKR):", priceSpin_);
+    form->addRow("Tax Amount (PKR):", taxSpin_);
+    form->addRow("Discount/Unit:", discountSpin_);
+    form->addRow("Initial Stock:", quantitySpin_);
+    form->addRow("Barcode:", barcodeRow);
     layout->addLayout(form);
 
     auto *buttons = new QHBoxLayout();
@@ -111,8 +129,7 @@ void ProductEditorDialog::buildUi()
 
     if (existingId_ > 0)
     {
-        generateButton_->setEnabled(false); // barcode is fixed for existing products
-        categoryCombo_->setEnabled(false);  // category is encoded in the barcode
+        generateButton_->setEnabled(false);
     }
 }
 
@@ -123,9 +140,16 @@ void ProductEditorDialog::populateFromExisting()
 
     nameEdit_->setText(QString::fromStdString(p->name()));
     acronymEdit_->setText(QString::fromStdString(p->acronym()));
-    const int idx = categoryCombo_->findData(
-        QString::fromStdString(p->categoryId()));
-    if (idx >= 0) categoryCombo_->setCurrentIndex(idx);
+
+    // Correctly find and set the category ID in the dropdown
+    const int idx = categoryCombo_->findData(QString::fromStdString(p->categoryId()));
+    if (idx >= 0) {
+        categoryCombo_->setCurrentIndex(idx);
+    } else {
+        // Fallback if the category was somehow deleted
+        QMessageBox::warning(this, "Warning", "The category for this product could not be found in PCategory.txt");
+    }
+
     unitCombo_->setCurrentIndex(p->unit() == MeasurementUnit::Count ? 0 : 1);
     priceSpin_->setValue(p->unitPrice());
     taxSpin_->setValue(p->taxAmount());
@@ -137,14 +161,13 @@ void ProductEditorDialog::populateFromExisting()
 
 void ProductEditorDialog::generateBarcode()
 {
-    if (categoryCombo_->currentIndex() < 0)
+    if (categoryCombo_->currentIndex() < 0 || categoryCombo_->currentData().toString().isEmpty())
     {
-        QMessageBox::warning(this, "Generate Barcode",
-                             "Add a category first.");
+        QMessageBox::warning(this, "Generate Barcode", "Please select a valid category first.");
         return;
     }
-    const std::string categoryId =
-        categoryCombo_->currentData().toString().toStdString();
+
+    const std::string categoryId = categoryCombo_->currentData().toString().toStdString();
 
     std::vector<std::string> existing;
     for (const Product &p : catalog_->all())
@@ -157,6 +180,12 @@ void ProductEditorDialog::generateBarcode()
         const std::string barcode = BarcodeAllocator::next(categoryId, existing);
         generatedBarcode_ = barcode;
         barcodeEdit_->setText(QString::fromStdString(barcode));
+
+        BarcodeWidget widget;
+        widget.setPattern(BarcodeEncoder().encode(std::stoi(barcode)));
+        QDir().mkpath("barcodes");
+        const QString path = QString("barcodes/%1.png").arg(QString::fromStdString(barcode));
+        widget.renderImage().save(path);
     }
     catch (const std::exception &e)
     {
@@ -166,8 +195,7 @@ void ProductEditorDialog::generateBarcode()
 
 void ProductEditorDialog::onSave()
 {
-    if (nameEdit_->text().trimmed().isEmpty() ||
-        acronymEdit_->text().trimmed().isEmpty())
+    if (nameEdit_->text().trimmed().isEmpty() || acronymEdit_->text().trimmed().isEmpty())
     {
         QMessageBox::warning(this, "Save", "Name and acronym are required.");
         return;
@@ -177,6 +205,14 @@ void ProductEditorDialog::onSave()
         QMessageBox::warning(this, "Save", "Generate a barcode first.");
         return;
     }
+
+    // Prevent the "ID incorrect" error by double-checking the dropdown data before saving
+    if (categoryCombo_->currentIndex() < 0 || categoryCombo_->currentData().toString().isEmpty())
+    {
+        QMessageBox::warning(this, "Save", "Please select a category.");
+        return;
+    }
+
     if (persist(generatedBarcode_))
     {
         accept();
@@ -201,8 +237,7 @@ bool ProductEditorDialog::persist(const std::string &barcode)
                   categoryCombo_->currentData().toString().toStdString(),
                   acronymEdit_->text().trimmed().toStdString(),
                   nameEdit_->text().trimmed().toStdString(),
-                  unitCombo_->currentIndex() == 0 ? MeasurementUnit::Count
-                                                  : MeasurementUnit::Weight,
+                  unitCombo_->currentIndex() == 0 ? MeasurementUnit::Count : MeasurementUnit::Weight,
                   priceSpin_->value(),
                   taxSpin_->value(),
                   discountSpin_->value(),
@@ -210,31 +245,14 @@ bool ProductEditorDialog::persist(const std::string &barcode)
                   "barcodes/" + barcode + ".png");
 
         if (existingId_ > 0)
-        {
             catalog_->updateProduct(p);
-        }
         else
-        {
             catalog_->addProduct(p);
-
-            // Write the image only after the product is accepted, so a
-            // cancelled dialog does not leave an orphan PNG behind.
-            BarcodeWidget widget;
-            widget.setPattern(BarcodeEncoder().encode(std::stoi(barcode)));
-            QDir().mkpath("barcodes");
-            const QString path = QString("barcodes/%1.png")
-                                     .arg(QString::fromStdString(barcode));
-            if (!widget.renderImage().save(path))
-            {
-                QMessageBox::warning(this, "Barcode Image",
-                    "The product was saved, but its barcode image could not be written.");
-            }
-        }
         return true;
     }
     catch (const std::exception &e)
     {
-        QMessageBox::critical(this, "Save", e.what());
+        QMessageBox::critical(this, "Save Error", e.what());
         return false;
     }
 }
