@@ -139,9 +139,10 @@ Bill BillingService::quote(const Order& order,
                            double specialDiscountPercent,
                            double amountReceived,
                            const string& billDate,
-                           const string& billTime) const
+                           const string& billTime,
+                           bool checkStock) const
 {
-    const vector<Product> products = resolveProducts(order, details, true);
+    const vector<Product> products = resolveProducts(order, details, checkStock);
 
     const string effectiveDate = billDate.empty()
                                      ? (order.date.empty() ? OrderManager::getCurrentDate() : order.date)
@@ -169,9 +170,10 @@ Bill BillingService::generateBill(const Order& order,
                                   double specialDiscountPercent,
                                   double amountReceived,
                                   const string& billDate,
-                                  const string& billTime)
+                                  const string& billTime,
+                                  bool checkStock)
 {
-    const vector<Product> products = resolveProducts(order, details, true);
+    const vector<Product> products = resolveProducts(order, details, checkStock);
 
     const string effectiveDate = billDate.empty()
                                      ? (order.date.empty() ? OrderManager::getCurrentDate() : order.date)
@@ -218,7 +220,8 @@ Bill BillingService::generateBill(const Order& order,
                                   double specialDiscountPercent,
                                   double amountReceived,
                                   const string& billDate,
-                                  const string& billTime)
+                                  const string& billTime,
+                                  bool checkStock)
 {
     const vector<OrderDetail> details =
         OrderManager::loadOrderDetails(order.orderId, orderDetailFilePath_);
@@ -228,7 +231,8 @@ Bill BillingService::generateBill(const Order& order,
         throw std::invalid_argument("order " + order.orderId +
                                     " has no detail rows in " + orderDetailFilePath_);
     }
-    return generateBill(order, details, specialDiscountPercent, amountReceived, billDate, billTime);
+    return generateBill(order, details, specialDiscountPercent, amountReceived,
+                        billDate, billTime, checkStock);
 }
 
 Bill BillingService::updateExistingBill(const string& existingBillId,

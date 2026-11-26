@@ -8,6 +8,8 @@
 #include "catalog/ProductCatalog.h"
 #include "Order.h"
 #include "OrderManager.h"
+#include "catalogStockAdjuster.h"
+#include "orderService.h"
 
 #include <cmath>
 #include <cstdio>
@@ -593,4 +595,57 @@ TEST_CASE(billing_service_assigns_sequential_ids_across_generated_bills)
     CHECK_EQ(second.billId, std::string("000000002"));
 
     removeAllTempFiles();
+}
+
+TEST_CASE(billing_after_stock_reservation_does_not_double_count)
+{
+    removeAllTempFiles();
+
+    // The order flow persists stock, so this test needs a writable copy of the
+    // fixture rather than the committed Product.txt.
+    const char *reservedProductPath = "test_inc3_reserved_product_tmp.txt";
+    {
+        std::ifstream in(fixturePath("Product.txt").c_str());
+        std::ofstream out(reservedProductPath, std::ios::trunc);
+        out << in.rdbuf();
+    }
+    ProductCatalog catalog(
+        std::make_shared<FileProductRepository>(reservedProductPath));
+    catalog.load();
+
+    OrderPaths paths;
+    paths.order = orderPath;
+    paths.detail = orderDetailPath;
+    std::ofstream(paths.order.c_str(), std::ios::trunc).close();
+    std::ofstream(paths.detail.c_str(), std::ios::trunc).close();
+
+    CatalogStockAdjuster adjuster(catalog);
+
+    // Fixture stock is 50; sell 30 so the order flow reserves more than half.
+    Order order = makeOrder("00011124", "2026-11-24", "paid");
+    order.orderId = ""; // let OrderService allocate the id
+    const std::vector<OrderDetail> cart = {makeDetail("", 1, "428647", 30.0)};
+    CHECK(OrderService::saveNewOrder(order, cart, adjuster, paths) ==
+          OrderResult::Ok);
+    CHECK(catalog.findByBarcode("428647")->availableQuantity() == 20.0);
+
+    auto billRepo = std::make_shared<FileBillRepository>(billPath);
+    auto detailRepo = std::make_shared<FileBillDetailRepository>(detailPath);
+    BillingService service(catalog, billRepo, detailRepo);
+
+    const std::vector<OrderDetail> details = {
+        makeDetail(order.orderId, 1, "428647", 30.0)};
+
+    // The cart was already checked before reservation, so billing must not
+    // count the reserved quantity a second time.
+    const Bill quote = service.quote(order, details, 0.0, 0.0, "", "", false);
+    CHECK(quote.totalPayable > 0.0);
+
+    const Bill bill = service.generateBill(order, details, 0.0,
+                                           quote.totalPayable, "", "", false);
+    CHECK_EQ(bill.paymentStatus, std::string("paid"));
+    CHECK(bill.totalPayable == quote.totalPayable);
+
+    removeAllTempFiles();
+    std::remove(reservedProductPath);
 }

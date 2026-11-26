@@ -35,25 +35,32 @@ public:
                    std::string orderDetailFilePath = "OrderDetail.txt",
                    std::shared_ptr<IBillDetailRepository> detailRepository = nullptr);
 
+    // `checkStock` re-checks the catalog before pricing. Keep it true when the
+    // caller has NOT reserved stock yet (a fresh cart). Pass false after
+    // OrderService has reserved the order, otherwise the reserved quantity is
+    // counted twice and a large sale is rejected.
     Bill quote(const Order& order,
                const std::vector<OrderDetail>& details,
                double specialDiscountPercent = 0.0,
                double amountReceived = 0.0,
                const std::string& billDate = "",
-               const std::string& billTime = "") const;
+               const std::string& billTime = "",
+               bool checkStock = true) const;
 
     Bill generateBill(const Order& order,
                       const std::vector<OrderDetail>& details,
                       double specialDiscountPercent = 0.0,
                       double amountReceived = 0.0,
                       const std::string& billDate = "",
-                      const std::string& billTime = "");
+                      const std::string& billTime = "",
+                      bool checkStock = true);
 
     Bill generateBill(const Order& order,
                       double specialDiscountPercent = 0.0,
                       double amountReceived = 0.0,
                       const std::string& billDate = "",
-                      const std::string& billTime = "");
+                      const std::string& billTime = "",
+                      bool checkStock = true);
 
     Bill updateExistingBill(const std::string& existingBillId,
                             const Order& updatedOrder,
