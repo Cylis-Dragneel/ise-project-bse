@@ -411,7 +411,8 @@ QWidget *PosWindow::createPosPage()
 
     connect(scanner_, &BarcodeScannerService::barcodeDetected,
             this, [this](const std::string &barcode) {
-                addBarcode(barcode, 1.0);
+                // Use the quantity currently set in the spinbox
+                addBarcode(barcode, quantityInput_->value());
                 cameraButton_->setText("Scan Next Item");
                 stopCameraButton_->setEnabled(true);
             });
@@ -512,6 +513,7 @@ QWidget *PosWindow::createManagerPage()
     layout->setContentsMargins(32, 28, 32, 28);
     layout->setSpacing(18);
 
+    // --- Header ---
     QHBoxLayout *headingRow = new QHBoxLayout();
     QVBoxLayout *headingText = new QVBoxLayout();
     QLabel *title = new QLabel("Pazarla", page);
@@ -531,33 +533,48 @@ QWidget *PosWindow::createManagerPage()
     headingRow->addWidget(switchRole, 0, Qt::AlignTop);
     layout->addLayout(headingRow);
 
+    // --- Cards ---
     QGridLayout *cards = new QGridLayout();
     cards->setHorizontalSpacing(16);
     cards->setVerticalSpacing(16);
+
     const auto makeCard = [page](const QString &name, const QString &description,
                                  const QString &color, const QString &hover) {
         QPushButton *card = new QPushButton(page);
-        card->setMinimumHeight(165);
+        card->setMinimumHeight(190);
         card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        card->setText(QString("%1\n\n%2").arg(name, description));
+        card->setText(QString("%1\n%2").arg(name, description));
         card->setStyleSheet(QString(
-            "QPushButton { text-align: left; white-space: pre-wrap; background: %1; color: white; border: 1px solid #426b58; border-radius: 16px; padding: 24px; font-size: 19px; font-weight: 700; }"
-            "QPushButton:hover { background: %2; }").arg(color, hover));
+            "QPushButton { "
+            "  text-align: left; "
+            "  white-space: pre-wrap; "
+            "  background: %1; "
+            "  color: white; "
+            "  border: 1px solid #426b58; "
+            "  border-radius: 16px; "
+            "  padding: 30px 24px; "
+            "  font-size: 18px; "
+            "  font-weight: 600; "
+            "} "
+            "QPushButton:hover { background: %2; }")
+            .arg(color, hover));
         return card;
     };
 
-    QPushButton *products = makeCard("⬡  Products", "Manage products", "#183f37", "#225447");
-    QPushButton *inventory = makeCard("▤  Inventory", "Manage stock", "#28516d", "#356783");
-    QPushButton *categories = makeCard("▥  Categories", "Barcode management", "#79552f", "#90683b");
-    QPushButton *reports = makeCard("▰  Reports", "Sales analytics", "#59436f", "#6d5486");
-    QPushButton *seasons = makeCard("❄  Seasons", "Discount periods", "#5a4d7a", "#6f6195");
-    QPushButton *orders = makeCard("▦  Orders", "Open and edit orders", "#3f4f6d", "#52658a");
+    QPushButton *products = makeCard("Products", "Manage products", "#183f37", "#225447");
+    QPushButton *inventory = makeCard("Inventory", "Manage stock", "#28516d", "#356783");
+    QPushButton *categories = makeCard("Categories", "Barcode management", "#79552f", "#90683b");
+    QPushButton *reports = makeCard("Reports", "Sales analytics", "#59436f", "#6d5486");
+    QPushButton *seasons = makeCard("Seasons", "Discount periods", "#5a4d7a", "#6f6195");
+    QPushButton *orders = makeCard("Orders", "Open and edit orders", "#3f4f6d", "#52658a");
+
     cards->addWidget(products, 0, 0);
     cards->addWidget(inventory, 0, 1);
     cards->addWidget(categories, 1, 0);
     cards->addWidget(reports, 1, 1);
     cards->addWidget(seasons, 2, 0);
     cards->addWidget(orders, 2, 1);
+
     cards->setColumnStretch(0, 1);
     cards->setColumnStretch(1, 1);
     cards->setRowStretch(0, 1);
@@ -565,13 +582,14 @@ QWidget *PosWindow::createManagerPage()
     cards->setRowStretch(2, 1);
     layout->addLayout(cards, 1);
 
+    // --- Footer ---
     QFrame *separator = new QFrame(page);
     separator->setFrameShape(QFrame::HLine);
     separator->setStyleSheet("color: #292929;");
     layout->addWidget(separator);
 
     QHBoxLayout *bottomRow = new QHBoxLayout();
-    QLabel *posLabel = new QLabel("🛒  Cashier / Point of Sale", page);
+    QLabel *posLabel = new QLabel("Cashier / Point of Sale", page);
     posLabel->setStyleSheet("font-size: 19px; font-weight: 700; color: #eeeeee;");
     bottomRow->addWidget(posLabel);
     bottomRow->addStretch();
@@ -583,37 +601,45 @@ QWidget *PosWindow::createManagerPage()
     managerStatus->setStyleSheet("color: #a7a7a7; padding-top: 4px;");
     layout->addWidget(managerStatus);
 
+    // --- Connections ---
     connect(switchRole, &QPushButton::clicked, this, [this]() {
         stopCameraInternal();
         stack_->setCurrentIndex(0);
     });
+
     connect(openCashier, &QPushButton::clicked, this, [this]() {
         role_ = Role::Cashier;
         roleLabel_->setText("Cashier");
         stack_->setCurrentIndex(1);
         setStatus("Cashier mode.");
     });
+
     connect(products, &QPushButton::clicked, this, [this]() {
         ProductsDialog dlg(&catalog_, &categories_, this);
         dlg.exec();
     });
+
     connect(inventory, &QPushButton::clicked, this, [this]() {
         InventoryDialog dlg(&catalog_, this);
         dlg.exec();
     });
+
     connect(categories, &QPushButton::clicked, this, [this]() {
         ProductsDialog dlg(&catalog_, &categories_, this);
         dlg.exec();
     });
+
     connect(reports, &QPushButton::clicked, this, [this]() {
         ReportsDialog dlg(catalog_, orderPath_, detailPath_,
                           billPath_, billDetailPath_, &seasons_, this);
         dlg.exec();
     });
+
     connect(seasons, &QPushButton::clicked, this, [this]() {
         SeasonsDialog dlg(&seasons_, this);
         dlg.exec();
     });
+
     connect(orders, &QPushButton::clicked, this, [this]() {
         OrdersDialog dlg(orderPath_, this);
         if (dlg.exec() == QDialog::Accepted && !dlg.selectedOrderId().empty())
@@ -688,8 +714,6 @@ void PosWindow::addScannedBarcode(const QString &barcode)
         return;
     }
 
-    // A scan starts a fresh cashier cart, but must not demote a manager who is
-    // in the middle of editing an existing order.
     if (!editingExistingOrder_)
     {
         role_ = Role::Cashier;
@@ -698,7 +722,9 @@ void PosWindow::addScannedBarcode(const QString &barcode)
     }
     stack_->setCurrentIndex(1);
     barcodeInput_->setText(barcode);
-    addBarcode(barcode.toStdString(), 1.0);
+
+    // Respect the quantity spinbox here too
+    addBarcode(barcode.toStdString(), quantityInput_->value());
 }
 
 bool PosWindow::addBarcode(const std::string &barcode, double quantity)
@@ -1090,9 +1116,14 @@ void PosWindow::openOrderForEditing(const std::string &orderId)
     if (!cart_.empty() &&
         (!editingExistingOrder_ || activeOrder_.orderId != orderId))
     {
-        if (QMessageBox::question(this, "Open Order",
-                "Replace the current cart with this order?")
-            != QMessageBox::Yes)
+        QMessageBox msg(this);
+        msg.setIcon(QMessageBox::Question);
+        msg.setWindowTitle("Open Order");
+        msg.setText("Replace the current cart with this order?");
+        msg.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+        msg.setStyleSheet("QMessageBox { background-color: #0b1110; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #1b6b4d; color: #ffffff; padding: 4px 12px; }");
+
+        if (msg.exec() != QMessageBox::Yes)
         {
             return;
         }
@@ -1161,13 +1192,23 @@ void PosWindow::generateBill()
 {
     if (cart_.empty())
     {
-        QMessageBox::warning(this, "Generate Bill", "The cart is empty.");
+        QMessageBox msg(this);
+        msg.setIcon(QMessageBox::Warning);
+        msg.setWindowTitle("Generate Bill");
+        msg.setText("The cart is empty.");
+        msg.setStyleSheet("QMessageBox { background-color: #0b1110; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #1b6b4d; color: #ffffff; padding: 4px 12px; }");
+        msg.exec();
         return;
     }
 
     if (customerInput_->text().trimmed().isEmpty())
     {
-        QMessageBox::warning(this, "Generate Bill", "Enter a customer name.");
+        QMessageBox msg(this);
+        msg.setIcon(QMessageBox::Warning);
+        msg.setWindowTitle("Generate Bill");
+        msg.setText("Enter a customer name.");
+        msg.setStyleSheet("QMessageBox { background-color: #0b1110; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #1b6b4d; color: #ffffff; padding: 4px 12px; }");
+        msg.exec();
         return;
     }
 
@@ -1196,8 +1237,12 @@ void PosWindow::generateBill()
         order.orderId = OrderManager::generateOrderId(order.date, orderPath_);
         if (order.orderId.empty())
         {
-            QMessageBox::critical(this, "Generate Bill",
-                                  "Could not allocate an order id.");
+            QMessageBox msg(this);
+            msg.setIcon(QMessageBox::Critical);
+            msg.setWindowTitle("Generate Bill");
+            msg.setText("Could not allocate an order id.");
+            msg.setStyleSheet("QMessageBox { background-color: #0b1110; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #1b6b4d; color: #ffffff; padding: 4px 12px; }");
+            msg.exec();
             return;
         }
         order.customerName = customer;
@@ -1218,7 +1263,12 @@ void PosWindow::generateBill()
     }
     catch (const std::exception &e)
     {
-        QMessageBox::critical(this, "Generate Bill", e.what());
+        QMessageBox msg(this);
+        msg.setIcon(QMessageBox::Critical);
+        msg.setWindowTitle("Generate Bill");
+        msg.setText(e.what());
+        msg.setStyleSheet("QMessageBox { background-color: #0b1110; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #1b6b4d; color: #ffffff; padding: 4px 12px; }");
+        msg.exec();
         return;
     }
 
@@ -1242,16 +1292,25 @@ void PosWindow::generateBill()
         {
             if (role_ != Role::Manager)
             {
-                QMessageBox::warning(this, "Manager Approval",
-                    "This paid order is inside the 7-day edit window and needs "
-                    "manager approval.\nSwitch to the Manager role and open the "
-                    "order again to edit it.");
+                QMessageBox msg(this);
+                msg.setIcon(QMessageBox::Warning);
+                msg.setWindowTitle("Manager Approval");
+                msg.setText("This paid order is inside the 7-day edit window and needs "
+                            "manager approval.\nSwitch to the Manager role and open the "
+                            "order again to edit it.");
+                msg.setStyleSheet("QMessageBox { background-color: #0b1110; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #1b6b4d; color: #ffffff; padding: 4px 12px; }");
+                msg.exec();
                 return;
             }
-            if (QMessageBox::question(this, "Manager Approval",
-                    "This is a paid order inside the 7-day edit window.\n"
-                    "Approve this edit?")
-                == QMessageBox::Yes)
+            QMessageBox msg(this);
+            msg.setIcon(QMessageBox::Question);
+            msg.setWindowTitle("Manager Approval");
+            msg.setText("This is a paid order inside the 7-day edit window.\n"
+                        "Approve this edit?");
+            msg.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+            msg.setStyleSheet("QMessageBox { background-color: #0b1110; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #1b6b4d; color: #ffffff; padding: 4px 12px; }");
+
+            if (msg.exec() == QMessageBox::Yes)
             {
                 managerApproved_ = true;
                 result = OrderService::editOrder(order, details, stamp,
@@ -1271,8 +1330,12 @@ void PosWindow::generateBill()
 
     if (result != OrderResult::Ok)
     {
-        QMessageBox::critical(this, "Generate Bill",
-                              QString::fromStdString(describe(result)));
+        QMessageBox msg(this);
+        msg.setIcon(QMessageBox::Critical);
+        msg.setWindowTitle("Generate Bill");
+        msg.setText(QString::fromStdString(describe(result)));
+        msg.setStyleSheet("QMessageBox { background-color: #0b1110; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #1b6b4d; color: #ffffff; padding: 4px 12px; }");
+        msg.exec();
         return;
     }
 
@@ -1294,7 +1357,12 @@ void PosWindow::generateBill()
     }
     catch (const std::exception &e)
     {
-        QMessageBox::critical(this, "Generate Bill", e.what());
+        QMessageBox msg(this);
+        msg.setIcon(QMessageBox::Critical);
+        msg.setWindowTitle("Generate Bill");
+        msg.setText(e.what());
+        msg.setStyleSheet("QMessageBox { background-color: #0b1110; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #1b6b4d; color: #ffffff; padding: 4px 12px; }");
+        msg.exec();
         return;
     }
 
@@ -1398,11 +1466,21 @@ void PosWindow::showBill(const Order &order, const Bill &bill,
         QString error;
         if (!BillPdfWriter::writeBillPdf(bill, path, &error))
         {
-            QMessageBox::warning(&dialog, "PDF", error);
+            QMessageBox msg(&dialog);
+            msg.setIcon(QMessageBox::Warning);
+            msg.setWindowTitle("PDF Error");
+            msg.setText(error);
+            msg.setStyleSheet("QMessageBox { background-color: #0b1110; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #1b6b4d; color: #ffffff; padding: 4px 12px; }");
+            msg.exec();
         }
         else
         {
-            QMessageBox::information(&dialog, "PDF", "Saved to " + path);
+            QMessageBox msg(&dialog);
+            msg.setIcon(QMessageBox::Information);
+            msg.setWindowTitle("PDF Saved");
+            msg.setText("Saved to:\n" + path);
+            msg.setStyleSheet("QMessageBox { background-color: #0b1110; color: #ffffff; } QLabel { color: #ffffff; } QPushButton { background-color: #1b6b4d; color: #ffffff; padding: 4px 12px; }");
+            msg.exec();
         }
     });
     connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
