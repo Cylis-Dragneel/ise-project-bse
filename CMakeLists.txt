@@ -1,4 +1,3 @@
-
 cmake_minimum_required(VERSION 3.21)
 
 project(QrApp VERSION 0.1.0 LANGUAGES CXX)
@@ -26,6 +25,7 @@ endfunction()
 
 file(GLOB_RECURSE CORE_SRC CONFIGURE_DEPENDS
     src/core/*.cpp
+    src/core/*.h
     src/encoder/*.h
     src/encoder/*.cpp
     src/decoder/*.h
@@ -49,6 +49,7 @@ if(CORE_SRC)
 else()
     message(STATUS "No core source files found. Skipping qrcore.")
 endif()
+
 # -------- TESTS --------
 
 if(QR_BUILD_TESTS)
@@ -64,7 +65,6 @@ if(QR_BUILD_TESTS)
         add_executable(qr_tests ${TEST_SRC})
         target_link_libraries(qr_tests PRIVATE qrcore)
         target_include_directories(qr_tests PRIVATE tests)
-        # Committed fixtures live next to the sources, not in the build tree.
         target_compile_definitions(qr_tests PRIVATE
             QR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
         qr_warnings(qr_tests)
@@ -87,12 +87,12 @@ if(QR_BUILD_APP)
 
     file(GLOB_RECURSE APP_SRC CONFIGURE_DEPENDS
         src/ui/*.h
-        src/camera/*.h
-        src/renderer/*.h
-        src/scanning/*.h
         src/ui/*.cpp
+        src/camera/*.h
         src/camera/*.cpp
+        src/renderer/*.h
         src/renderer/*.cpp
+        src/scanning/*.h
         src/scanning/*.cpp
         src/main.cpp
     )
@@ -101,10 +101,17 @@ if(QR_BUILD_APP)
 
         add_executable(qrapp ${APP_SRC})
 
-        target_include_directories(qrapp PRIVATE 
-        src
-        src/encoder
-        src/renderer
+        target_include_directories(qrapp PRIVATE
+            src
+            src/core
+            src/encoder
+            src/decoder
+            src/models
+            src/managers
+            src/renderer
+            src/scanning
+            src/camera
+            src/ui
         )
 
         target_link_libraries(qrapp PRIVATE
@@ -117,8 +124,6 @@ if(QR_BUILD_APP)
             target_link_libraries(qrapp PRIVATE qrcore)
         endif()
 
-        # Keep the sample data next to the executable so Product.txt and its
-        # barcode images are found regardless of the working directory.
         add_custom_command(TARGET qrapp POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_CURRENT_SOURCE_DIR}/data"

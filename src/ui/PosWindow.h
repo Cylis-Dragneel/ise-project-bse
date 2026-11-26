@@ -9,6 +9,8 @@
 #include <vector>
 
 #include "billing/BillingService.h"
+#include "catalog/CategoryCatalog.h"
+#include "catalog/FileCategoryRepository.h"
 #include "catalog/FileProductRepository.h"
 #include "catalog/ProductCatalog.h"
 #include "catalog/ProductResolver.h"
@@ -27,6 +29,8 @@ class QTextEdit;
 class QVideoWidget;
 class CameraHandler;
 class BarcodeScannerService;
+class ProductsDialog;
+class InventoryDialog;
 
 // The Point of Sale screen: role selection, order entry, product description
 // and bill display. All business logic comes from the Qt-free core:
@@ -84,6 +88,11 @@ private:
                   const std::vector<CartLine> &lines);
     void refreshRecentOrders();
 
+    // --- hold / resume ---
+    void holdCurrentOrder();
+    void resumeOrder();
+    std::vector<OrderDetail> cartToDetails(const std::string &orderId) const;
+
     // --- camera ---
     void startOrArmCamera();
     void stopCameraInternal();
@@ -101,6 +110,7 @@ private:
     std::string catalogError_;
 
     ProductCatalog catalog_;
+    CategoryCatalog categories_;
     ProductResolver resolver_;
     SeasonService seasons_;
     BillingService billing_;
@@ -108,6 +118,11 @@ private:
     std::vector<CartLine> cart_;
     std::optional<Product> lastProduct_;
     Role role_ = Role::Cashier;
+
+    // Order currently being edited (empty when creating a new order).
+    Order activeOrder_;
+    bool editingExistingOrder_ = false;
+    bool managerApproved_ = false;
 
     QStackedWidget *stack_ = nullptr;
     QLabel *roleLabel_ = nullptr;
@@ -121,6 +136,9 @@ private:
     QLabel *statusLabel_ = nullptr;
     QLabel *totalsLabel_ = nullptr;
     QPushButton *billButton_ = nullptr;
+
+    QPushButton *holdButton_ = nullptr;
+    QPushButton *resumeButton_ = nullptr;
 
     QLineEdit *customerInput_ = nullptr;
     QLineEdit *contactInput_ = nullptr;
